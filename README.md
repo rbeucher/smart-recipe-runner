@@ -5,6 +5,8 @@ An intelligent GitHub Action for testing ESMValTool recipes and Jupyter notebook
 ## Features
 
 ### 🧪 ESMValTool Recipe Testing
+- **Automatic recipe fetching** from ESMValTool GitHub repository
+- **Branch-specific testing** supporting main, develop, or specific versions
 - **Intelligent resource allocation** based on recipe complexity
 - **HPC integration** with PBS/SLURM job scheduling
 - **Adaptive configuration** with environment detection
@@ -34,6 +36,16 @@ An intelligent GitHub Action for testing ESMValTool recipes and Jupyter notebook
     recipe_name: 'recipe_python.yml'
     config: '{"rootpath": {"default": "/data"}}'
     esmvaltool_version: 'main'
+
+# Test from specific ESMValTool branch
+- name: Test Recipe from Development Branch
+  uses: ./smart-recipe-runner
+  with:
+    mode: 'recipe'
+    recipe_name: 'recipe_ocean_example.yml'
+    esmvaltool_repository: 'https://github.com/ESMValGroup/ESMValTool'
+    esmvaltool_branch: 'develop'
+    dry_run: true
 ```
 
 ### Notebook Testing
@@ -70,6 +82,8 @@ An intelligent GitHub Action for testing ESMValTool recipes and Jupyter notebook
 | Parameter | Description | Required | Default |
 |-----------|-------------|----------|---------|
 | `recipe_name` | ESMValTool recipe file name | When mode=recipe/both | - |
+| `esmvaltool_repository` | ESMValTool repository URL | No | `https://github.com/ESMValGroup/ESMValTool` |
+| `esmvaltool_branch` | ESMValTool repository branch | No | `main` |
 | `config` | Recipe configuration (JSON string or file path) | No | `{}` |
 | `esmvaltool_version` | ESMValTool version to use | No | `main` |
 | `conda_module` | Conda module name | No | `esmvaltool` |

@@ -41,6 +41,21 @@ class SmartConfigManager:
         self.hpc_system = hpc_system
         self.config_cache = {}
         
+        # If recipe_dir doesn't exist, try to find ESMValTool recipes in cloned repo
+        if not self.recipe_dir.exists():
+            potential_paths = [
+                Path('./esmvaltool-repo/esmvaltool/recipes'),
+                Path('../esmvaltool-repo/esmvaltool/recipes'),
+                Path('esmvaltool-repo/esmvaltool/recipes')
+            ]
+            for path in potential_paths:
+                if path.exists():
+                    print(f"📁 Found ESMValTool recipes at: {path}")
+                    self.recipe_dir = path
+                    break
+            else:
+                print(f"⚠️  Recipe directory {recipe_dir} not found, will use fallback configurations")
+        
         # Default resource mappings based on analysis of existing recipes
         self.default_resources = {
             'light': ResourceConfig(

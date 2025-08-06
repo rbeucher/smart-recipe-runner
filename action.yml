@@ -13,6 +13,14 @@ inputs:
   recipe_name:
     description: 'Name of the ESMValTool recipe to run'
     required: false
+  esmvaltool_repository:
+    description: 'ESMValTool repository URL'
+    required: false
+    default: 'https://github.com/ESMValGroup/ESMValTool'
+  esmvaltool_branch:
+    description: 'ESMValTool repository branch'
+    required: false
+    default: 'main'
   config:
     description: 'Recipe configuration (JSON string or file path)'
     required: false
@@ -110,6 +118,19 @@ runs:
           exit 1
         fi
         
+    - name: Clone ESMValTool Repository
+      if: inputs.mode == 'recipe' || inputs.mode == 'both'
+      shell: bash
+      run: |
+        echo "🔄 Cloning ESMValTool repository..."
+        git clone --depth 1 --branch "${{ inputs.esmvaltool_branch }}" "${{ inputs.esmvaltool_repository }}" ./esmvaltool-repo
+        echo "📁 ESMValTool repository cloned to ./esmvaltool-repo"
+        echo "🔍 Available recipes:"
+        find ./esmvaltool-repo/esmvaltool/recipes -name "*.yml" | head -10
+        echo "   ... (showing first 10 recipes)"
+        total_recipes=$(find ./esmvaltool-repo/esmvaltool/recipes -name "*.yml" | wc -l)
+        echo "📊 Total recipes found: $total_recipes"
+        
     - name: Clone Notebook Repository
       if: inputs.mode == 'notebook' || inputs.mode == 'both'
       shell: bash
@@ -174,13 +195,28 @@ runs:
         import sys
         import os
         import json
+        from pathlib import Path
         sys.path.insert(0, os.environ.get('PYTHONPATH', '').split(':')[1])
         
         from recipe_runner import SmartRecipeRunner
         
+        # Determine recipe directory - look for cloned ESMValTool repo
+        recipe_dir = None
+        potential_paths = [
+            './esmvaltool-repo/esmvaltool/recipes',
+            '../esmvaltool-repo/esmvaltool/recipes',
+            'esmvaltool-repo/esmvaltool/recipes'
+        ]
+        for path in potential_paths:
+            if Path(path).exists():
+                recipe_dir = path
+                print(f"📁 Found ESMValTool recipes at: {recipe_dir}")
+                break
+        
         runner = SmartRecipeRunner(
             hpc_system='local',
-            log_dir='./logs'
+            log_dir='./logs',
+            recipe_dir=recipe_dir
         )
         
         try:

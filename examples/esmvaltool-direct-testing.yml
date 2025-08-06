@@ -1,0 +1,206 @@
+# Demonstration of ESMValTool Recipe Testing with Direct Repository Access
+# This example shows how the Smart Recipe Runner now fetches recipes directly from GitHub
+
+name: ESMValTool Recipe Testing Demo
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # Test ESMValTool recipes from main branch
+  test-main-recipes:
+    runs-on: ubuntu-latest
+    name: Test Main Branch Recipes
+    
+    steps:
+      - name: Checkout Smart Recipe Runner
+        uses: actions/checkout@v4
+        
+      - name: Test Recipe from ESMValTool Main
+        uses: ./
+        with:
+          mode: 'recipe'
+          recipe_name: 'recipe_ocean_example'
+          esmvaltool_repository: 'https://github.com/ESMValGroup/ESMValTool'
+          esmvaltool_branch: 'main'
+          dry_run: true
+          config: |
+            {
+              "rootpath": {"default": "/tmp/esmvaltool_output"},
+              "offline": true
+            }
+            
+      - name: Show Recipe Discovery Results
+        run: |
+          echo "📊 Recipe testing completed!"
+          if [ -f "smart-runner-report.json" ]; then
+            echo "📋 Report summary:"
+            jq -r '.summary.recipe.status // "No recipe status"' smart-runner-report.json
+          fi
+
+  # Test recipes from development branch
+  test-dev-recipes:
+    runs-on: ubuntu-latest
+    name: Test Development Branch Recipes
+    
+    steps:
+      - name: Checkout Smart Recipe Runner
+        uses: actions/checkout@v4
+        
+      - name: Test Recipe from ESMValTool Develop
+        uses: ./
+        with:
+          mode: 'recipe'
+          recipe_name: 'recipe_validation'
+          esmvaltool_repository: 'https://github.com/ESMValGroup/ESMValTool'
+          esmvaltool_branch: 'develop'
+          dry_run: true
+          
+  # Test multiple recipes with matrix strategy
+  test-recipe-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        recipe:
+          - name: 'recipe_ocean_example'
+            category: 'ocean'
+          - name: 'recipe_validation'
+            category: 'testing'
+          - name: 'recipe_toymodel'
+            category: 'examples'
+        branch: ['main', 'develop']
+        
+    name: Test ${{ matrix.recipe.name }} (${{ matrix.branch }})
+    
+    steps:
+      - name: Checkout Smart Recipe Runner
+        uses: actions/checkout@v4
+        
+      - name: Test Recipe Matrix
+        uses: ./
+        with:
+          mode: 'recipe'
+          recipe_name: ${{ matrix.recipe.name }}
+          esmvaltool_repository: 'https://github.com/ESMValGroup/ESMValTool'
+          esmvaltool_branch: ${{ matrix.branch }}
+          dry_run: true
+          
+      - name: Upload Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recipe-${{ matrix.recipe.name }}-${{ matrix.branch }}-results
+          path: smart-runner-report.json
+
+  # Combined testing: ESMValTool recipes + COSIMA notebooks
+  test-combined-scientific:
+    runs-on: ubuntu-latest
+    name: Combined Scientific Testing
+    
+    steps:
+      - name: Checkout Smart Recipe Runner
+        uses: actions/checkout@v4
+        
+      - name: Test ESMValTool Recipe + COSIMA Notebooks
+        uses: ./
+        with:
+          mode: 'both'
+          # ESMValTool recipe
+          recipe_name: 'recipe_ocean_example'
+          esmvaltool_repository: 'https://github.com/ESMValGroup/ESMValTool'
+          esmvaltool_branch: 'main'
+          # COSIMA notebooks
+          repository_url: 'https://github.com/COSIMA/cosima-recipes'
+          notebook_categories: 'appetisers'
+          dry_run: true
+          
+      - name: Analyze Combined Results
+        if: always()
+        run: |
+          echo "🎯 Combined Testing Summary:"
+          if [ -f "smart-runner-report.json" ]; then
+            echo "📊 Results:"
+            jq -r '.summary' smart-runner-report.json
+          fi
+
+  # Test custom ESMValTool fork
+  test-custom-fork:
+    runs-on: ubuntu-latest
+    name: Test Custom ESMValTool Fork
+    
+    steps:
+      - name: Checkout Smart Recipe Runner
+        uses: actions/checkout@v4
+        
+      - name: Test Recipe from Custom Fork
+        uses: ./
+        with:
+          mode: 'recipe'
+          recipe_name: 'recipe_validation'
+          # Could be any fork/branch
+          esmvaltool_repository: 'https://github.com/ESMValGroup/ESMValTool'
+          esmvaltool_branch: 'main'
+          dry_run: true
+          
+  # Performance testing across branches
+  performance-comparison:
+    runs-on: ubuntu-latest
+    name: Performance Comparison
+    
+    steps:
+      - name: Checkout Smart Recipe Runner
+        uses: actions/checkout@v4
+        
+      - name: Test Recipe Discovery Performance
+        run: |
+          echo "⏱️ Testing recipe discovery performance..."
+          
+          # Time the main branch
+          start_time=$(date +%s)
+          ./smart-recipe-runner \
+            mode=recipe \
+            recipe_name=recipe_validation \
+            esmvaltool_branch=main \
+            dry_run=true || true
+          main_time=$(($(date +%s) - start_time))
+          
+          echo "📊 Performance Results:"
+          echo "  Main branch discovery: ${main_time}s"
+          
+          # Could add comparison with develop branch
+          echo "✅ Performance testing completed"
+
+  # Validation of available recipes
+  validate-recipes:
+    runs-on: ubuntu-latest
+    name: Validate Available Recipes
+    
+    steps:
+      - name: Checkout Smart Recipe Runner
+        uses: actions/checkout@v4
+        
+      - name: Clone ESMValTool and List Recipes
+        run: |
+          echo "🔍 Discovering all available ESMValTool recipes..."
+          git clone --depth 1 https://github.com/ESMValGroup/ESMValTool.git
+          
+          echo "📋 Recipe Categories:"
+          find ESMValTool/esmvaltool/recipes -type d | sort
+          
+          echo "📊 Recipe Counts:"
+          echo "  Total recipes: $(find ESMValTool/esmvaltool/recipes -name '*.yml' | wc -l)"
+          echo "  Example recipes: $(find ESMValTool/esmvaltool/recipes/examples -name '*.yml' 2>/dev/null | wc -l || echo 0)"
+          echo "  Testing recipes: $(find ESMValTool/esmvaltool/recipes/testing -name '*.yml' 2>/dev/null | wc -l || echo 0)"
+          
+          echo "🎯 Sample recipes for testing:"
+          find ESMValTool/esmvaltool/recipes -name '*.yml' | head -10
+          
+      - name: Test Sample Recipe Discovery
+        uses: ./
+        with:
+          mode: 'recipe'
+          recipe_name: 'recipe_validation'
+          dry_run: true

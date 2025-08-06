@@ -20,14 +20,31 @@ import time
 class SmartRecipeRunner:
     """Intelligent recipe execution manager."""
     
-    def __init__(self, gadi_host: str = 'gadi.nci.org.au'):
+    def __init__(self, gadi_host: str = 'gadi.nci.org.au', hpc_system: str = 'gadi', log_dir: str = './logs', recipe_dir: Optional[str] = None):
         self.gadi_host = gadi_host
-        self.gadi_user = os.environ.get('GADI_USER')
-        self.gadi_key = os.environ.get('GADI_KEY')
-        self.scripts_dir = os.environ.get('SCRIPTS_DIR')
+        self.hpc_system = hpc_system
+        self.log_dir = Path(log_dir)
+        self.log_dir.mkdir(exist_ok=True)
         
-        if not all([self.gadi_user, self.gadi_key, self.scripts_dir]):
-            raise ValueError("Required environment variables not set: GADI_USER, GADI_KEY, SCRIPTS_DIR")
+        # Custom recipe directory for cloned repositories
+        self.custom_recipe_dir = recipe_dir
+        if recipe_dir:
+            self.custom_recipe_dir = Path(recipe_dir)
+            print(f"🔗 Using custom recipe directory: {self.custom_recipe_dir}")
+        
+        # Only set up HPC connection if using HPC system
+        if hpc_system == 'gadi':
+            self.gadi_user = os.environ.get('GADI_USER')
+            self.gadi_key = os.environ.get('GADI_KEY')
+            self.scripts_dir = os.environ.get('SCRIPTS_DIR')
+            
+            if not all([self.gadi_user, self.gadi_key, self.scripts_dir]):
+                print("⚠️  Warning: HPC environment variables not set, will run in local mode")
+                self.hpc_system = 'local'
+        else:
+            self.gadi_user = None
+            self.gadi_key = None
+            self.scripts_dir = None
 
     def check_recent_runs(self, recipe_name: str) -> bool:
         """Check if recipe has run successfully recently."""
@@ -37,6 +54,12 @@ class SmartRecipeRunner:
 
     def determine_esmvaltool_path(self, version: str) -> tuple[str, str]:
         """Determine ESMValTool installation path based on version."""
+        
+        # If using custom recipe directory (cloned repo), use that
+        if self.custom_recipe_dir and self.custom_recipe_dir.exists():
+            return str(self.custom_recipe_dir.parent.parent), 'esmvaltool/recipes'
+        
+        # Default version mapping for traditional installations
         version_mapping = {
             'main': ('../ESMValTool-main', 'esmvaltool/recipes'),
             'latest': ('../ESMValTool-main', 'esmvaltool/recipes'),
@@ -213,10 +236,73 @@ PBSEOF
         else:
             return "submission_failed", "", f"Could not parse job ID from: {job_output}"
 
+    def find_recipe_file(self, recipe_name: str) -> Optional[str]:
+        """Find recipe file in custom directory or default locations."""
+        
+        # Add .yml extension if not present
+        if not recipe_name.endswith('.yml'):
+            recipe_name += '.yml'
+        
+        # Search in custom recipe directory first
+        if self.custom_recipe_dir:
+            potential_files = [
+                self.custom_recipe_dir / recipe_name,
+                self.custom_recipe_dir / 'examples' / recipe_name,
+                self.custom_recipe_dir / 'testing' / recipe_name,
+            ]
+            
+            for recipe_file in potential_files:
+                if recipe_file.exists():
+                    print(f"✅ Found recipe: {recipe_file}")
+                    return str(recipe_file)
+        
+        # If no custom directory or file not found, return None
+        print(f"❌ Recipe {recipe_name} not found in available directories")
+        return None
+    
+    def run_local(self, recipe_name: str, config_json: str, esmvaltool_version: str, 
+                  conda_module: str, mode: str = 'dry-run') -> tuple[str, str]:
+        """Run recipe locally (for CI environments)."""
+        print(f"🔄 Running recipe '{recipe_name}' locally in {mode} mode")
+        
+        # Find the recipe file
+        recipe_file = self.find_recipe_file(recipe_name)
+        if not recipe_file:
+            return ('error', '')
+        
+        print(f"📄 Using recipe file: {recipe_file}")
+        
+        if mode == 'dry-run':
+            print("🧪 Dry-run mode: Would execute ESMValTool with:")
+            print(f"   Recipe: {recipe_file}")
+            print(f"   Version: {esmvaltool_version}")
+            print(f"   Config: {config_json}")
+            return ('success', '')
+        else:
+            print("⚠️  Local execution mode not fully implemented for CI")
+            print("   This would require full ESMValTool installation")
+            return ('skipped', '')
+
     def run(self, recipe_name: str, config_json: str, esmvaltool_version: str, 
             conda_module: str, mode: str) -> tuple[str, str]:
         """
-        Main execution logic.
+        Main execution logic with intelligent mode detection.
+        
+        Returns:
+            (status, job_id)
+        """
+        
+        # For local/CI execution, use local runner
+        if self.hpc_system == 'local':
+            return self.run_local(recipe_name, config_json, esmvaltool_version, conda_module, mode)
+        
+        # For HPC execution, use original PBS-based method
+        return self.run_hpc(recipe_name, config_json, esmvaltool_version, conda_module, mode)
+    
+    def run_hpc(self, recipe_name: str, config_json: str, esmvaltool_version: str, 
+                conda_module: str, mode: str) -> tuple[str, str]:
+        """
+        Original HPC execution logic.
         
         Returns:
             (status, job_id)
