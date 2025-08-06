@@ -25,6 +25,61 @@ An intelligent GitHub Action for testing ESMValTool recipes and Jupyter notebook
 - **HPC systems** (PBS, SLURM, LSF)
 - **Container environments** (Docker, Singularity)
 
+## Installation
+
+### Prerequisites
+- Python 3.8 or higher  
+- Git
+- SSH access to HPC system (for HPC execution)
+
+### For GitHub Actions
+Add this action to your workflow file (`.github/workflows/`):
+
+```yaml
+name: Test ESMValTool Recipes
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test Recipe
+        uses: rbeucher/smart-recipe-runner@main
+        with:
+          mode: 'recipe'
+          recipe_name: 'your_recipe.yml'
+```
+
+### Local Development Setup
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/rbeucher/smart-recipe-runner.git
+   cd smart-recipe-runner
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   pip install -r lib/requirements.txt
+   ```
+
+3. **Configure HPC access (if using HPC execution):**
+   ```bash
+   export GADI_USER="your_username"
+   export GADI_KEY="path/to/ssh/key"
+   ```
+
+4. **Run tests:**
+   ```bash
+   python -m pytest tests/
+   ```
+
+### HPC Configuration
+For HPC execution, ensure you have:
+- SSH key-based authentication configured
+- Access to required storage areas and compute queues
+- Appropriate conda/module environments available
+
 ## Quick Start
 
 ### Recipe Testing
