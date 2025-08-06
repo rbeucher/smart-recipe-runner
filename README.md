@@ -1,6 +1,12 @@
 # Smart Recipe Runner
 
+[![Tests](https://github.com/rbeucher/smart-recipe-runner/workflows/Test%20Smart%20Recipe%20Runner/badge.svg)](https://github.com/rbeucher/smart-recipe-runner/actions/workflows/test.yml)
+[![Dashboard](https://img.shields.io/badge/Dashboard-Integrated-blue)](docs/dashboard.md)
+[![Status](https://img.shields.io/badge/Status-Monitor-green)](docs/status.md)
+
 An intelligent GitHub Action for testing ESMValTool recipes and Jupyter notebooks with adaptive resource management, designed for scientific computing workflows.
+
+> **📊 [Dashboard Guide](docs/dashboard.md)** | **📋 [Status Monitor](docs/status.md)** | **🚀 [Quick Start](#quick-start)**
 
 ## Features
 
@@ -147,6 +153,14 @@ For HPC execution, ensure you have:
 | `dry_run` | Perform dry run without execution | No | `false` |
 | `timeout` | Maximum execution time (seconds) | No | `3600` |
 
+### Dashboard Parameters
+| Parameter | Description | Required | Default |
+|-----------|-------------|----------|---------|
+| `enable_dashboard` | Enable dashboard generation and status reporting | No | `false` |
+| `dashboard_update` | Update dashboard data (auto, always, never) | No | `auto` |
+| `create_status_issue` | Create GitHub issue on failure | No | `false` |
+| `dashboard_retention_days` | Number of days to retain dashboard data | No | `30` |
+
 ## Notebook Categories
 
 ### Supported Repository Types
@@ -168,6 +182,49 @@ For HPC execution, ensure you have:
 | `job_id` | PBS/SLURM job ID (if applicable) |
 | `report_path` | Path to detailed execution report |
 | `summary` | Human-readable execution summary |
+| `dashboard_url` | Dashboard URL (if enabled) |
+| `dashboard_status` | Dashboard generation status |
+| `issue_number` | GitHub issue number (if created) |
+
+## 📊 Dashboard Integration
+
+The Smart Recipe Runner includes optional dashboard functionality for monitoring and analytics:
+
+### Quick Start with Dashboard
+
+```yaml
+- name: Test Recipe with Dashboard
+  uses: ACCESS-NRI/smart-recipe-runner@v1
+  with:
+    mode: 'recipe'
+    recipe_name: 'recipe_python.yml'
+    enable_dashboard: true       # Enable dashboard features
+    create_status_issue: true    # Auto-create issues on failure
+```
+
+### Dashboard Features
+
+- **📈 Live Web Dashboard**: Visual metrics and trends at `https://username.github.io/repository/`
+- **🔔 Automated Status Reports**: GitHub issue creation and status tracking
+- **📊 Performance Analytics**: Success rates, execution times, resource usage
+- **🗂️ Historical Data**: Trend analysis with configurable retention
+
+### Dashboard Outputs
+
+```yaml
+- name: Recipe Test with Dashboard
+  id: test
+  uses: ACCESS-NRI/smart-recipe-runner@v1
+  with:
+    enable_dashboard: true
+
+- name: Access Dashboard Results
+  run: |
+    echo "Dashboard: ${{ steps.test.outputs.dashboard_url }}"
+    echo "Status: ${{ steps.test.outputs.dashboard_status }}"
+```
+
+📖 **[Full Dashboard Documentation](docs/dashboard.md)**
 
 ## Advanced Usage
 

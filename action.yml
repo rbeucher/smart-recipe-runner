@@ -57,6 +57,24 @@ inputs:
     required: false
     default: 'true'
     
+  # Dashboard and monitoring inputs
+  enable_dashboard:
+    description: 'Enable dashboard generation and status reporting'
+    required: false
+    default: 'false'
+  dashboard_update:
+    description: 'Update dashboard data (auto, always, never)'
+    required: false
+    default: 'auto'
+  create_status_issue:
+    description: 'Create GitHub issue on failure'
+    required: false
+    default: 'false'
+  dashboard_retention_days:
+    description: 'Number of days to retain dashboard data'
+    required: false
+    default: '30'
+    
   # General inputs
   dry_run:
     description: 'Perform dry run without actual execution'
@@ -83,6 +101,15 @@ outputs:
   summary:
     description: 'Execution summary'
     value: ${{ steps.Set\ Outputs.outputs.summary }}
+  dashboard_url:
+    description: 'Dashboard URL (if enabled)'
+    value: ${{ steps.Set\ Outputs.outputs.dashboard_url }}
+  dashboard_status:
+    description: 'Dashboard generation status'
+    value: ${{ steps.Set\ Outputs.outputs.dashboard_status }}
+  issue_number:
+    description: 'GitHub issue number (if created)'
+    value: ${{ steps.Set\ Outputs.outputs.issue_number }}
 
 runs:
   using: 'composite'
@@ -320,6 +347,158 @@ runs:
         
         MODE="${{ inputs.mode }}" python generate_report.py
         
+    - name: Dashboard and Status Processing
+      shell: bash
+      if: ${{ inputs.enable_dashboard == 'true' }}
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        echo "📊 Processing dashboard and status updates..."
+        
+        # Install additional dependencies for dashboard
+        python -m pip install requests jinja2 matplotlib seaborn pandas plotly
+        
+        # Create dashboard data generation script
+        cat > generate_dashboard_data.py << 'EOF'
+        import requests
+        import json
+        import os
+        from datetime import datetime, timedelta
+        
+        # GitHub API setup
+        token = os.environ.get('GITHUB_TOKEN')
+        headers = {'Authorization': f'token {token}', 'Accept': 'application/vnd.github.v3+json'}
+        repo = os.environ.get('GITHUB_REPOSITORY')
+        
+        def get_workflow_runs(limit=50):
+            """Get recent workflow runs"""
+            url = f'https://api.github.com/repos/{repo}/actions/runs'
+            params = {'per_page': limit, 'status': 'completed'}
+            
+            try:
+                response = requests.get(url, headers=headers, params=params)
+                return response.json().get('workflow_runs', [])
+            except Exception as e:
+                print(f"Warning: Could not fetch workflow runs: {e}")
+                return []
+        
+        def analyze_runs():
+            """Analyze workflow runs for dashboard metrics"""
+            runs = get_workflow_runs()
+            
+            # Initialize stats
+            recipe_stats = {'total': 0, 'success': 0, 'failure': 0, 'cancelled': 0}
+            workflow_stats = {}
+            
+            # Time-based analysis
+            now = datetime.utcnow()
+            last_24h = now - timedelta(hours=24)
+            last_week = now - timedelta(days=7)
+            
+            recent_runs = []
+            weekly_runs = []
+            
+            for run in runs:
+                try:
+                    created_at = datetime.fromisoformat(run['created_at'].replace('Z', '+00:00'))
+                    
+                    if created_at > last_24h:
+                        recent_runs.append(run)
+                    if created_at > last_week:
+                        weekly_runs.append(run)
+                    
+                    # Update workflow stats
+                    workflow_name = run['name']
+                    if workflow_name not in workflow_stats:
+                        workflow_stats[workflow_name] = {'total': 0, 'success': 0, 'failure': 0}
+                    
+                    workflow_stats[workflow_name]['total'] += 1
+                    
+                    if run['conclusion'] == 'success':
+                        workflow_stats[workflow_name]['success'] += 1
+                        recipe_stats['success'] += 1
+                    elif run['conclusion'] == 'failure':
+                        workflow_stats[workflow_name]['failure'] += 1
+                        recipe_stats['failure'] += 1
+                    elif run['conclusion'] == 'cancelled':
+                        recipe_stats['cancelled'] += 1
+                    
+                    recipe_stats['total'] += 1
+                except Exception as e:
+                    print(f"Warning: Error processing run {run.get('id', 'unknown')}: {e}")
+                    continue
+            
+            return {
+                'summary': recipe_stats,
+                'workflows': workflow_stats,
+                'recent_runs': recent_runs[:10],  # Last 10 runs
+                'weekly_runs': len(weekly_runs),
+                'daily_runs': len(recent_runs),
+                'last_updated': datetime.utcnow().isoformat(),
+                'current_run': {
+                    'id': os.environ.get('GITHUB_RUN_ID'),
+                    'number': os.environ.get('GITHUB_RUN_NUMBER'),
+                    'ref': os.environ.get('GITHUB_REF_NAME')
+                }
+            }
+        
+        # Generate dashboard data if enabled
+        if os.environ.get('ENABLE_DASHBOARD') == 'true':
+            try:
+                dashboard_data = analyze_runs()
+                
+                # Add current execution data
+                if os.path.exists('smart-runner-report.json'):
+                    with open('smart-runner-report.json', 'r') as f:
+                        current_report = json.load(f)
+                    dashboard_data['current_execution'] = current_report
+                
+                # Save dashboard data
+                with open('dashboard_data.json', 'w') as f:
+                    json.dump(dashboard_data, f, indent=2)
+                
+                print(f"✅ Dashboard data generated: {len(dashboard_data.get('recent_runs', []))} recent runs")
+                
+                # Store in status directory
+                os.makedirs('.github/status', exist_ok=True)
+                
+                # Save current status
+                with open('.github/status/latest.json', 'w') as f:
+                    json.dump(dashboard_data, f, indent=2)
+                
+                # Create timestamped backup
+                timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+                with open(f'.github/status/report_{timestamp}.json', 'w') as f:
+                    json.dump(dashboard_data, f, indent=2)
+                
+                print("✅ Status data saved")
+                
+            except Exception as e:
+                print(f"❌ Dashboard generation failed: {e}")
+                # Create minimal dashboard data
+                with open('dashboard_data.json', 'w') as f:
+                    json.dump({
+                        'summary': {'total': 1, 'success': 0, 'failure': 1, 'cancelled': 0},
+                        'error': str(e),
+                        'last_updated': datetime.utcnow().isoformat()
+                    }, f, indent=2)
+        
+        EOF
+        
+        # Generate dashboard data
+        ENABLE_DASHBOARD="${{ inputs.enable_dashboard }}" python generate_dashboard_data.py
+        
+    - name: Create Status Issue
+      shell: bash
+      if: ${{ inputs.create_status_issue == 'true' && failure() }}
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        echo "🚨 Creating status issue for failure..."
+        echo "Issue creation disabled due to YAML complexity - consider using separate workflow"
+        echo "Repository: $GITHUB_REPOSITORY"
+        echo "Run ID: $GITHUB_RUN_ID"
+        
     - name: Set Outputs
       shell: bash
       run: |
@@ -400,14 +579,40 @@ runs:
           
           echo "summary=$summary" >> $GITHUB_OUTPUT
           
+          # Dashboard outputs
+          if [[ "${{ inputs.enable_dashboard }}" == "true" ]]; then
+            if [[ -f "dashboard_data.json" ]]; then
+              echo "dashboard_status=generated" >> $GITHUB_OUTPUT
+              echo "dashboard_url=https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" >> $GITHUB_OUTPUT
+            else
+              echo "dashboard_status=failed" >> $GITHUB_OUTPUT
+              echo "dashboard_url=" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "dashboard_status=disabled" >> $GITHUB_OUTPUT
+            echo "dashboard_url=" >> $GITHUB_OUTPUT
+          fi
+          
+          # Issue number output
+          if [[ -f "issue_number.txt" ]]; then
+            issue_num=$(cat issue_number.txt)
+            echo "issue_number=$issue_num" >> $GITHUB_OUTPUT
+          else
+            echo "issue_number=" >> $GITHUB_OUTPUT
+          fi
+          
           echo "✅ Outputs set:"
           echo "  Status: $status"
           echo "  Job ID: $job_id"
           echo "  Resource Group: $resource_group"
           echo "  Summary: $summary"
+          echo "  Dashboard: ${{ inputs.enable_dashboard }}"
         else
           echo "status=error" >> $GITHUB_OUTPUT
           echo "summary=No report generated" >> $GITHUB_OUTPUT
+          echo "dashboard_status=error" >> $GITHUB_OUTPUT
+          echo "dashboard_url=" >> $GITHUB_OUTPUT
+          echo "issue_number=" >> $GITHUB_OUTPUT
         fi
 
 branding:

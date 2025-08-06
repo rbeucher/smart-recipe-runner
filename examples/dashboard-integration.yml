@@ -1,0 +1,159 @@
+name: Recipe Testing with Dashboard
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run weekly tests with dashboard update
+    - cron: '0 6 * * 1'
+
+jobs:
+  test-recipes-with-dashboard:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      # Basic recipe testing
+      - name: Test Recipe (Basic)
+        uses: ./
+        with:
+          mode: 'recipe'
+          recipe_name: 'recipe_python.yml'
+          esmvaltool_version: 'main'
+          dry_run: true
+        
+      # Recipe testing with dashboard enabled
+      - name: Test Recipe with Dashboard
+        id: test-with-dashboard
+        uses: ./
+        with:
+          mode: 'recipe'
+          recipe_name: 'recipe_python.yml'
+          esmvaltool_version: 'main'
+          dry_run: true
+          # Dashboard options
+          enable_dashboard: true
+          dashboard_update: 'always'
+          create_status_issue: true
+          dashboard_retention_days: 30
+        
+      # Display dashboard outputs
+      - name: Show Dashboard Results
+        run: |
+          echo "📊 Dashboard Results:"
+          echo "Status: ${{ steps.test-with-dashboard.outputs.status }}"
+          echo "Dashboard URL: ${{ steps.test-with-dashboard.outputs.dashboard_url }}"
+          echo "Dashboard Status: ${{ steps.test-with-dashboard.outputs.dashboard_status }}"
+          echo "Issue Number: ${{ steps.test-with-dashboard.outputs.issue_number }}"
+          echo "Summary: ${{ steps.test-with-dashboard.outputs.summary }}"
+      
+      # Notebook testing with dashboard
+      - name: Test Notebooks with Dashboard
+        uses: ./
+        with:
+          mode: 'notebook'
+          repository_url: 'https://github.com/COSIMA/cosima-recipes'
+          notebook_categories: 'appetisers'
+          notebook_mode: 'dry-run'
+          enable_dashboard: true
+          dashboard_update: 'auto'
+
+  # Matrix testing with dashboard aggregation
+  matrix-test-with-dashboard:
+    strategy:
+      matrix:
+        recipe: ['recipe_python.yml', 'recipe_ocean.yml']
+        version: ['main', 'v2.10.0']
+    
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Test Recipe ${{ matrix.recipe }}
+        uses: ./
+        with:
+          mode: 'recipe'
+          recipe_name: ${{ matrix.recipe }}
+          esmvaltool_version: ${{ matrix.version }}
+          dry_run: true
+          enable_dashboard: true
+          dashboard_update: 'always'
+          create_status_issue: false  # Don't create issues for matrix jobs
+
+  # Combined workflow with full dashboard features
+  comprehensive-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Combined Recipe and Notebook Test
+        id: comprehensive
+        uses: ./
+        with:
+          mode: 'both'
+          recipe_name: 'recipe_python.yml'
+          repository_url: 'https://github.com/COSIMA/cosima-recipes'
+          notebook_categories: 'appetisers,tutorials'
+          notebook_mode: 'test'
+          esmvaltool_version: 'main'
+          # Full dashboard configuration
+          enable_dashboard: true
+          dashboard_update: 'always'
+          create_status_issue: true
+          dashboard_retention_days: 60
+          max_parallel: 2
+          timeout: 1800
+        
+      - name: Upload Dashboard Data
+        if: steps.comprehensive.outputs.dashboard_status == 'generated'
+        uses: actions/upload-artifact@v3
+        with:
+          name: dashboard-data
+          path: |
+            dashboard_data.json
+            .github/status/
+          retention-days: 30
+          
+      - name: Comment PR with Results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const status = '${{ steps.comprehensive.outputs.status }}';
+            const dashboardUrl = '${{ steps.comprehensive.outputs.dashboard_url }}';
+            const summary = '${{ steps.comprehensive.outputs.summary }}';
+            
+            const statusEmoji = status === 'success' ? '✅' : status === 'partial_failure' ? '⚠️' : '❌';
+            
+            const body = `## ${statusEmoji} Smart Recipe Runner Results
+
+            **Status**: ${status}
+            **Summary**: ${summary}
+
+            ${dashboardUrl ? `📊 [View Dashboard](${dashboardUrl})` : ''}
+
+            <details>
+            <summary>Configuration Details</summary>
+
+            - **Mode**: both (recipe + notebook)
+            - **Recipe**: recipe_python.yml
+            - **ESMValTool Version**: main
+            - **Notebook Categories**: appetisers,tutorials
+            - **Dashboard**: enabled
+
+            </details>`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

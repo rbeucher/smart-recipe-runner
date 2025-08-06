@@ -298,3 +298,128 @@ jobs:
           echo "Python files: $(find . -name '*.py' | wc -l)"
           echo "YAML files: $(find . -name '*.yml' | wc -l)"
           echo "Markdown files: $(find . -name '*.md' | wc -l)"
+
+  # Generate workflow summary for dashboard
+  generate-summary:
+    name: Generate Test Summary
+    runs-on: ubuntu-latest
+    needs: [lint-and-validate, test-configuration, test-examples, test-documentation, integration-test]
+    if: always()
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Generate Test Summary
+        run: |
+          echo "# 🧪 Smart Recipe Runner Test Summary" > test-summary.md
+          echo "" >> test-summary.md
+          echo "**Workflow Run**: ${{ github.run_number }}" >> test-summary.md
+          echo "**Commit**: ${{ github.sha }}" >> test-summary.md
+          echo "**Branch**: ${{ github.ref_name }}" >> test-summary.md
+          echo "**Timestamp**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> test-summary.md
+          echo "" >> test-summary.md
+          
+          # Check job statuses
+          echo "## Job Results" >> test-summary.md
+          echo "" >> test-summary.md
+          
+          # Lint and validate
+          if [ "${{ needs.lint-and-validate.result }}" == "success" ]; then
+            echo "- ✅ **Lint and Validate**: Passed" >> test-summary.md
+          else
+            echo "- ❌ **Lint and Validate**: Failed" >> test-summary.md
+          fi
+          
+          # Configuration tests
+          if [ "${{ needs.test-configuration.result }}" == "success" ]; then
+            echo "- ✅ **Configuration Tests**: Passed" >> test-summary.md
+          else
+            echo "- ❌ **Configuration Tests**: Failed" >> test-summary.md
+          fi
+          
+          # Example tests
+          if [ "${{ needs.test-examples.result }}" == "success" ]; then
+            echo "- ✅ **Example Workflows**: Passed" >> test-summary.md
+          else
+            echo "- ❌ **Example Workflows**: Failed" >> test-summary.md
+          fi
+          
+          # Documentation tests
+          if [ "${{ needs.test-documentation.result }}" == "success" ]; then
+            echo "- ✅ **Documentation**: Passed" >> test-summary.md
+          else
+            echo "- ❌ **Documentation**: Failed" >> test-summary.md
+          fi
+          
+          # Integration tests
+          if [ "${{ needs.integration-test.result }}" == "success" ]; then
+            echo "- ✅ **Integration Tests**: Passed" >> test-summary.md
+          else
+            echo "- ❌ **Integration Tests**: Failed" >> test-summary.md
+          fi
+          
+          echo "" >> test-summary.md
+          
+          # Overall status
+          overall_status="success"
+          if [[ "${{ needs.lint-and-validate.result }}" != "success" || 
+                "${{ needs.test-configuration.result }}" != "success" || 
+                "${{ needs.test-examples.result }}" != "success" || 
+                "${{ needs.test-documentation.result }}" != "success" || 
+                "${{ needs.integration-test.result }}" != "success" ]]; then
+            overall_status="failure"
+          fi
+          
+          if [ "$overall_status" == "success" ]; then
+            echo "## ✅ Overall Status: PASSED" >> test-summary.md
+            echo "" >> test-summary.md
+            echo "All tests completed successfully! 🎉" >> test-summary.md
+          else
+            echo "## ❌ Overall Status: FAILED" >> test-summary.md
+            echo "" >> test-summary.md
+            echo "Some tests failed. Please check the individual job logs for details." >> test-summary.md
+            echo "" >> test-summary.md
+            echo "### 📚 Resources" >> test-summary.md
+            echo "- [Troubleshooting Guide](docs/troubleshooting.md)" >> test-summary.md
+            echo "- [Configuration Guide](docs/configuration.md)" >> test-summary.md
+            echo "- [Contributing Guide](CONTRIBUTING.md)" >> test-summary.md
+          fi
+          
+          # Display summary
+          echo "📋 Test Summary Generated:"
+          cat test-summary.md
+      
+      - name: Create Status Badge Data
+        run: |
+          # Generate badge data for dashboard
+          overall_status="success"
+          if [[ "${{ needs.lint-and-validate.result }}" != "success" || 
+                "${{ needs.test-configuration.result }}" != "success" || 
+                "${{ needs.test-examples.result }}" != "success" || 
+                "${{ needs.test-documentation.result }}" != "success" || 
+                "${{ needs.integration-test.result }}" != "success" ]]; then
+            overall_status="failure"
+          fi
+          
+          # Create badge JSON
+          cat > badge-data.json << EOF
+          {
+            "schemaVersion": 1,
+            "label": "tests",
+            "message": "$overall_status",
+            "color": "$([ "$overall_status" == "success" ] && echo "brightgreen" || echo "red")",
+            "logoSvg": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTkgMTZoNnYtNkg5djZ6bTEtMTBWNGgydjJoMnYySDl6Ii8+PC9zdmc+"
+          }
+          EOF
+          
+          echo "Badge data created for status: $overall_status"
+      
+      - name: Upload Test Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results
+          path: |
+            test-summary.md
+            badge-data.json
+          retention-days: 30
