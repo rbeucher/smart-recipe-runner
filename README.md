@@ -115,28 +115,17 @@ For HPC execution, ensure you have:
     max_parallel: 3
 ```
 
-### Combined Testing
-```yaml
-- name: Test Both Recipes and Notebooks
-  uses: ./smart-recipe-runner
-  with:
-    mode: 'both'
-    recipe_name: 'recipe_python.yml'
-    repository_url: 'https://github.com/COSIMA/cosima-recipes'
-    notebook_categories: 'appetisers,mains'
-```
-
 ## Input Parameters
 
 ### Mode Selection
 | Parameter | Description | Required | Default |
 |-----------|-------------|----------|---------|
-| `mode` | Execution mode: `recipe`, `notebook`, or `both` | No | `recipe` |
+| `mode` | Execution mode: `recipe` or `notebook` | No | `recipe` |
 
 ### Recipe Parameters
 | Parameter | Description | Required | Default |
 |-----------|-------------|----------|---------|
-| `recipe_name` | ESMValTool recipe file name | When mode=recipe/both | - |
+| `recipe_name` | ESMValTool recipe file name | When mode=recipe | - |
 | `esmvaltool_repository` | ESMValTool repository URL | No | `https://github.com/ESMValGroup/ESMValTool` |
 | `esmvaltool_branch` | ESMValTool repository branch | No | `main` |
 | `config` | Recipe configuration (JSON string or file path) | No | `{}` |
@@ -146,7 +135,7 @@ For HPC execution, ensure you have:
 ### Notebook Parameters
 | Parameter | Description | Required | Default |
 |-----------|-------------|----------|---------|
-| `repository_url` | Repository URL containing notebooks | When mode=notebook/both | - |
+| `repository_url` | Repository URL containing notebooks | When mode=notebook | - |
 | `notebook_categories` | Categories to test (comma-separated) | No | `appetisers,tutorials` |
 | `notebook_mode` | Test mode: `test`, `validate`, or `dry-run` | No | `test` |
 | `max_parallel` | Maximum parallel executions | No | `3` |
@@ -201,27 +190,6 @@ notebook_testing:
   dependencies:
     conda_environment: 'environment.yml'
     pip_requirements: 'requirements.txt'
-```
-
-### HPC Integration
-
-```yaml
-- name: Test on HPC Cluster
-  uses: ./smart-recipe-runner
-  with:
-    mode: 'both'
-    recipe_name: 'recipe_climate_models.yml'
-    repository_url: 'https://github.com/NCAR/climate-analysis'
-    config: |
-      {
-        "rootpath": {"default": "/glade/work/data"},
-        "drs": {"CMIP6": "ESGF"},
-        "offline": false
-      }
-  env:
-    HPC_SYSTEM: 'pbs'
-    HPC_QUEUE: 'regular'
-    HPC_WALLTIME: '02:00:00'
 ```
 
 ### Matrix Testing
@@ -316,24 +284,6 @@ pytest tests/ --cov=lib --cov-report=html
     notebook_mode: 'test'
     max_parallel: 2
     timeout: 7200  # 2 hours for complex ocean models
-```
-
-### ESMValTool Recipe with Notebooks
-```yaml
-- name: Comprehensive Climate Analysis
-  uses: ./smart-recipe-runner
-  with:
-    mode: 'both'
-    recipe_name: 'recipe_cmip6_analysis.yml'
-    repository_url: 'https://github.com/NCAR/climate-tutorials'
-    notebook_categories: 'climate,visualization'
-    config: |
-      {
-        "rootpath": {"default": "/data/cmip6"},
-        "drs": {"CMIP6": "ESGF"},
-        "offline": false,
-        "max_parallel_tasks": 4
-      }
 ```
 
 ## Contributing
