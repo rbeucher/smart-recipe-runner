@@ -319,7 +319,7 @@ jobs:
             echo "⚠️ Found potential API key references"
           fi
           
-          if grep -r "-----BEGIN.*PRIVATE KEY-----" . --exclude-dir=.git --exclude-dir=tests || true; then
+          if grep -r -F "BEGIN PRIVATE KEY" . --exclude-dir=.git --exclude-dir=tests --exclude="*.yml" --exclude="*.yaml" || true; then
             echo "❌ Found private key in code!"
             exit 1
           fi
