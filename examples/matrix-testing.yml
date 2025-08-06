@@ -1,0 +1,280 @@
+# Example GitHub Actions workflow for matrix testing
+# Demonstrates testing multiple repositories and configurations in parallel
+
+name: Matrix Testing Strategy
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    # Weekly comprehensive testing
+    - cron: '0 3 * * 0'
+
+jobs:
+  # Generate test matrix dynamically
+  setup-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      recipe-matrix: ${{ steps.recipe-matrix.outputs.matrix }}
+      notebook-matrix: ${{ steps.notebook-matrix.outputs.matrix }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Generate Recipe Matrix
+        id: recipe-matrix
+        run: |
+          # Generate matrix for different recipe configurations
+          matrix='{
+            "include": [
+              {
+                "recipe": "recipe_python.yml",
+                "config": "{\"rootpath\": {\"default\": \"/tmp/test1\"}}",
+                "version": "main"
+              },
+              {
+                "recipe": "recipe_ocean.yml", 
+                "config": "{\"rootpath\": {\"default\": \"/tmp/test2\"}}",
+                "version": "v2.10.0"
+              }
+            ]
+          }'
+          echo "matrix=$(echo $matrix | jq -c .)" >> $GITHUB_OUTPUT
+          
+      - name: Generate Notebook Matrix
+        id: notebook-matrix
+        run: |
+          # Generate matrix for different notebook repositories
+          matrix='{
+            "include": [
+              {
+                "repository": "https://github.com/COSIMA/cosima-recipes",
+                "categories": "appetisers",
+                "timeout": 1800,
+                "name": "COSIMA-Appetisers"
+              },
+              {
+                "repository": "https://github.com/COSIMA/cosima-recipes", 
+                "categories": "tutorials",
+                "timeout": 2400,
+                "name": "COSIMA-Tutorials"
+              },
+              {
+                "repository": "https://github.com/NCAR/python-tutorial",
+                "categories": "basics,visualization",
+                "timeout": 1200,
+                "name": "NCAR-Basics"
+              }
+            ]
+          }'
+          echo "matrix=$(echo $matrix | jq -c .)" >> $GITHUB_OUTPUT
+
+  # Test ESMValTool recipes in parallel
+  test-recipes:
+    needs: setup-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.recipe-matrix) }}
+      fail-fast: false  # Continue testing other recipes if one fails
+      
+    name: Recipe ${{ matrix.recipe }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Test Recipe
+        uses: ./
+        id: test-recipe
+        with:
+          mode: 'recipe'
+          recipe_name: ${{ matrix.recipe }}
+          config: ${{ matrix.config }}
+          esmvaltool_version: ${{ matrix.version }}
+          dry_run: true
+          
+      - name: Upload recipe results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recipe-${{ matrix.recipe }}-report
+          path: smart-runner-report.json
+          
+  # Test notebooks in parallel
+  test-notebooks:
+    needs: setup-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.notebook-matrix) }}
+      fail-fast: false
+      
+    name: ${{ matrix.name }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Test Notebooks
+        uses: ./
+        id: test-notebooks
+        with:
+          mode: 'notebook'
+          repository_url: ${{ matrix.repository }}
+          notebook_categories: ${{ matrix.categories }}
+          notebook_mode: 'test'
+          max_parallel: 2
+          timeout: ${{ matrix.timeout }}
+          continue_on_error: true
+          
+      - name: Upload notebook results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: notebook-${{ matrix.name }}-report
+          path: smart-runner-report.json
+
+  # Combined testing matrix
+  test-combined:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        scenario:
+          - name: "Climate-Analysis"
+            recipe: "recipe_python.yml"
+            repository: "https://github.com/COSIMA/cosima-recipes"
+            categories: "appetisers"
+          - name: "Ocean-Modeling"
+            recipe: "recipe_ocean.yml"
+            repository: "https://github.com/COSIMA/cosima-recipes"
+            categories: "tutorials"
+            
+    name: Combined ${{ matrix.scenario.name }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Test Combined Workflow
+        uses: ./
+        with:
+          mode: 'both'
+          recipe_name: ${{ matrix.scenario.recipe }}
+          repository_url: ${{ matrix.scenario.repository }}
+          notebook_categories: ${{ matrix.scenario.categories }}
+          dry_run: true
+          timeout: 3600
+          
+  # Cross-platform testing
+  cross-platform:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.9', '3.10', '3.11']
+        exclude:
+          # Exclude some combinations to reduce test time
+          - os: windows-latest
+            python-version: '3.9'
+          - os: macos-latest
+            python-version: '3.9'
+            
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} Python ${{ matrix.python-version }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          
+      - name: Test Notebook Validation
+        uses: ./
+        with:
+          mode: 'notebook'
+          repository_url: 'https://github.com/COSIMA/cosima-recipes'
+          notebook_categories: 'appetisers'
+          notebook_mode: 'dry-run'  # Validation only for cross-platform
+          
+  # Performance comparison matrix
+  performance-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        parallel_config:
+          - max_parallel: 1
+            name: "Sequential"
+          - max_parallel: 2
+            name: "Parallel-2"
+          - max_parallel: 4
+            name: "Parallel-4"
+            
+    name: Performance ${{ matrix.parallel_config.name }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Test with ${{ matrix.parallel_config.name }}
+        uses: ./
+        with:
+          mode: 'notebook'
+          repository_url: 'https://github.com/COSIMA/cosima-recipes'
+          notebook_categories: 'appetisers'
+          notebook_mode: 'test'
+          max_parallel: ${{ matrix.parallel_config.max_parallel }}
+          timeout: 1800
+          
+      - name: Extract timing metrics
+        run: |
+          if [ -f "smart-runner-report.json" ]; then
+            echo "⏱️ ${{ matrix.parallel_config.name }} Performance:"
+            jq -r '.notebook_results.total_execution_time // "N/A"' smart-runner-report.json
+          fi
+
+  # Collect and analyze results
+  analyze-results:
+    needs: [test-recipes, test-notebooks, test-combined]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: test-reports
+          
+      - name: Generate summary report
+        run: |
+          echo "# 📊 Matrix Testing Summary" > summary.md
+          echo "" >> summary.md
+          
+          # Count test reports
+          recipe_count=$(find test-reports -name "*recipe*" -type d | wc -l)
+          notebook_count=$(find test-reports -name "*notebook*" -type d | wc -l)
+          
+          echo "## Test Execution Summary" >> summary.md
+          echo "- 🧪 Recipe tests: $recipe_count" >> summary.md
+          echo "- 📓 Notebook tests: $notebook_count" >> summary.md
+          echo "" >> summary.md
+          
+          # Analyze results
+          echo "## Detailed Results" >> summary.md
+          for report_dir in test-reports/*/; do
+            if [ -f "$report_dir/smart-runner-report.json" ]; then
+              name=$(basename "$report_dir")
+              status=$(jq -r '.summary.recipe.status // .summary.notebooks.successful // "unknown"' "$report_dir/smart-runner-report.json")
+              echo "- $name: $status" >> summary.md
+            fi
+          done
+          
+          echo "📋 Matrix testing completed:"
+          cat summary.md
+          
+      - name: Upload summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: matrix-testing-summary
+          path: summary.md

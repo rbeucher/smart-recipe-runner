@@ -1,267 +1,289 @@
 # Smart Recipe Runner
 
-🧠 **Intelligent ESMValTool recipe execution with automatic configuration management and HPC integration**
+An intelligent GitHub Action for testing ESMValTool recipes and Jupyter notebooks with adaptive resource management, designed for scientific computing workflows.
 
-This unified GitHub Action replaces both the `deploy-recipe-cicd` and `run-recipe` actions, providing a self-managing, intelligent system for ESMValTool recipe execution.
+## Features
 
-## ✨ Key Features
+### 🧪 ESMValTool Recipe Testing
+- **Intelligent resource allocation** based on recipe complexity
+- **HPC integration** with PBS/SLURM job scheduling
+- **Adaptive configuration** with environment detection
+- **Comprehensive logging** and error reporting
 
-- 🔄 **Self-Healing Configuration**: Automatically detects and regenerates configuration when recipes change
-- 🧠 **Intelligent Resource Detection**: Analyzes recipes to determine optimal resource requirements
-- 🎯 **Smart Execution**: Skips unnecessary runs and provides fallback configurations
-- 🖥️ **HPC Integration**: Full PBS integration with Gadi and other HPC systems
-- 📊 **Multiple Execution Modes**: Run-only, setup-and-run, config-check, and dry-run modes
-- � **Batch Processing**: Matrix strategy for parallel execution of multiple recipes
-- 🔍 **Recipe Discovery**: Automatic discovery and filtering of available recipes
-- �🛡️ **Robust Error Handling**: Comprehensive failure detection and GitHub issue management
-- 🔄 **Version Management**: Support for multiple ESMValTool versions
+### 📓 Jupyter Notebook Testing
+- **Scientific repository support** (COSIMA Recipes, NCAR, etc.)
+- **Automated notebook discovery** with complexity analysis
+- **Parallel execution** with resource management
+- **Multi-level validation** (syntax, execution, output)
+- **Repository-specific configurations** for different scientific domains
 
-## 🚀 Usage
+### � Cross-Platform Support
+- **Local development** environments
+- **CI/CD pipelines** (GitHub Actions, GitLab CI)
+- **HPC systems** (PBS, SLURM, LSF)
+- **Container environments** (Docker, Singularity)
 
-### Single Recipe Execution
+## Quick Start
 
+### Recipe Testing
 ```yaml
-- name: Run Recipe
-  uses: ACCESS-NRI/smart-recipe-runner@v1
+- name: Test ESMValTool Recipe
+  uses: ./smart-recipe-runner
   with:
-    recipe: recipe_example
-    esmvaltool_version: main
+    mode: 'recipe'
+    recipe_name: 'recipe_python.yml'
+    config: '{"rootpath": {"default": "/data"}}'
+    esmvaltool_version: 'main'
 ```
 
-### Multiple Recipe Execution (Matrix Strategy)
-
+### Notebook Testing
 ```yaml
-# Setup job - generates execution matrix
-setup:
-  outputs:
-    matrix: ${{ steps.generate-matrix.outputs.matrix }}
-  steps:
-    - uses: ACCESS-NRI/smart-recipe-runner@v1
-      id: generate-matrix
-      with:
-        recipe: all  # Special value for matrix generation
-        generate_matrix: true
-        recipe_filter: "recipe_.*"  # Filter recipes by pattern
-        resource_filter: "all"     # or "small", "medium", "large"
-
-# Execute job - runs recipes in parallel
-execute:
-  needs: setup
-  strategy:
-    matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
-  steps:
-    - uses: ACCESS-NRI/smart-recipe-runner@v1
-      with:
-        recipe: ${{ matrix.recipe }}
-        mode: run-only  # Configuration already generated
-```
-
-### Recipe Filtering Options
-
-```yaml
-# Filter by pattern (regex)
-recipe_filter: "recipe_(example|test).*"
-
-# Filter by computational requirements
-resource_filter: "small"  # small, medium, large, extra-large
-
-# Custom recipe list (comma-separated)
-recipe_filter: "recipe_example,recipe_validation,recipe_test"
-```
-
-### Advanced Usage
-
-```yaml
-- name: Smart Recipe Execution
-  uses: ./.github/actions/smart-recipe-runner
+- name: Test COSIMA Recipes
+  uses: ./smart-recipe-runner
   with:
-    recipe: recipe_climwip_test_basic
-    mode: setup-and-run
-    esmvaltool_version: v2.13.0
-    conda_module: conda/access-med
-    force_config_regeneration: 'true'
-    hpc_system: gadi
-    project_name: w40
+    mode: 'notebook'
+    repository_url: 'https://github.com/COSIMA/cosima-recipes'
+    notebook_categories: 'appetisers,tutorials'
+    notebook_mode: 'test'
+    max_parallel: 3
 ```
 
-### Configuration Check Only
-
+### Combined Testing
 ```yaml
-- name: Verify Configuration
-  uses: ./.github/actions/smart-recipe-runner
+- name: Test Both Recipes and Notebooks
+  uses: ./smart-recipe-runner
   with:
-    recipe: recipe_example
-    mode: config-check
+    mode: 'both'
+    recipe_name: 'recipe_python.yml'
+    repository_url: 'https://github.com/COSIMA/cosima-recipes'
+    notebook_categories: 'appetisers,mains'
 ```
 
-### Dry Run (Testing)
+## Input Parameters
 
-```yaml
-- name: Test Recipe Configuration
-  uses: ./.github/actions/smart-recipe-runner
-  with:
-    recipe: recipe_example
-    mode: dry-run
-```
+### Mode Selection
+| Parameter | Description | Required | Default |
+|-----------|-------------|----------|---------|
+| `mode` | Execution mode: `recipe`, `notebook`, or `both` | No | `recipe` |
 
-## 📋 Inputs
+### Recipe Parameters
+| Parameter | Description | Required | Default |
+|-----------|-------------|----------|---------|
+| `recipe_name` | ESMValTool recipe file name | When mode=recipe/both | - |
+| `config` | Recipe configuration (JSON string or file path) | No | `{}` |
+| `esmvaltool_version` | ESMValTool version to use | No | `main` |
+| `conda_module` | Conda module name | No | `esmvaltool` |
 
-| Input | Description | Required | Default |
-|-------|-------------|----------|---------|
-| `recipe` | Recipe name to run | ✅ | |
-| `mode` | Execution mode: `run-only`, `setup-and-run`, `config-check`, `dry-run` | ❌ | `run-only` |
-| `esmvaltool_version` | ESMValTool version to use | ❌ | `main` |
-| `conda_module` | Conda module to load | ❌ | `conda/access-med` |
-| `config_path` | Path to repository configuration file | ❌ | `.github/config/repository-config.yml` |
-| `force_config_regeneration` | Force config regeneration | ❌ | `false` |
-| `recipe_directory` | Path to recipes directory | ❌ | `admin/ESMValTool/esmvaltool/recipes` |
-| `hpc_system` | Target HPC system | ❌ | `gadi` |
-| `project_name` | HPC project allocation | ❌ | `w40` |
-| `storage_paths` | HPC storage paths (comma-separated) | ❌ | `gdata/kj13,gdata/fs38,...` |
+### Notebook Parameters
+| Parameter | Description | Required | Default |
+|-----------|-------------|----------|---------|
+| `repository_url` | Repository URL containing notebooks | When mode=notebook/both | - |
+| `notebook_categories` | Categories to test (comma-separated) | No | `appetisers,tutorials` |
+| `notebook_mode` | Test mode: `test`, `validate`, or `dry-run` | No | `test` |
+| `max_parallel` | Maximum parallel executions | No | `3` |
+| `continue_on_error` | Continue on notebook failures | No | `true` |
 
-## 📤 Outputs
+### General Parameters
+| Parameter | Description | Required | Default |
+|-----------|-------------|----------|---------|
+| `dry_run` | Perform dry run without execution | No | `false` |
+| `timeout` | Maximum execution time (seconds) | No | `3600` |
+
+## Notebook Categories
+
+### Supported Repository Types
+- **COSIMA Recipes**: `appetisers`, `mains`, `tutorials`, `desserts`, `papers`
+- **NCAR Python Tutorial**: `basics`, `meteorology`, `climate`, `visualization`
+- **Generic Scientific**: `tutorials`, `examples`, `advanced`, `research`
+
+### Category Descriptions
+- **appetisers/basics**: Quick start notebooks (< 5 min execution)
+- **mains/tutorials**: Standard tutorials (5-30 min execution)
+- **desserts/advanced**: Complex analyses (30+ min execution)
+- **papers**: Research paper reproductions (variable execution time)
+
+## Outputs
 
 | Output | Description |
 |--------|-------------|
-| `status` | Recipe execution status (`success`, `failed`, `skipped`, `config-updated`) |
-| `job_id` | PBS job ID if submitted |
-| `log_url` | URL to log artifact |
-| `config_status` | Configuration management status |
-| `resource_group` | Detected resource group for recipe |
+| `status` | Overall execution status (`success`, `partial_failure`, `failure`) |
+| `job_id` | PBS/SLURM job ID (if applicable) |
+| `report_path` | Path to detailed execution report |
+| `summary` | Human-readable execution summary |
 
-## 🎛️ Execution Modes
+## Advanced Usage
 
-### `run-only` (Default)
-- Checks configuration validity
-- Auto-regenerates if needed
-- Executes recipe
-- Standard production mode
+### Custom Repository Configuration
 
-### `setup-and-run`
-- Forces configuration regeneration
-- Executes recipe
-- Use when recipes have changed significantly
-
-### `config-check`
-- Only validates/regenerates configuration
-- Does not execute recipe
-- Useful for configuration testing
-
-### `dry-run`
-- Generates PBS script but doesn't submit
-- Shows what would be executed
-- Perfect for testing and debugging
-
-## 🧠 Intelligence Features
-
-### Automatic Resource Detection
-
-The action analyzes recipes using multiple heuristics:
-
-- **Known Recipe Database**: Maintains classifications from historical analysis
-- **Content Analysis**: Examines YAML structure for complexity indicators
-- **Heuristic Scoring**: Uses keywords and patterns to estimate resource needs
-
-### Resource Groups
-
-| Group | Queue | Memory | Walltime | Use Case |
-|-------|-------|--------|----------|----------|
-| `light` | `copyq` | 32GB | 2:00:00 | Simple diagnostics |
-| `medium` | `normal` | 64GB | 4:00:00 | Standard recipes |
-| `heavy` | `normal` | 128GB | 8:00:00 | Complex multi-model |
-| `megamem` | `megamem` | 1000GB | 8:00:00 | Memory-intensive |
-
-### Smart Configuration Management
-
-- **Change Detection**: Uses content hashing to detect recipe changes
-- **Incremental Updates**: Only regenerates when necessary
-- **Fallback Logic**: Works even without configuration files
-- **Cache Optimization**: Avoids redundant analysis
-
-## 🔧 Environment Requirements
-
-Required environment variables:
+For repositories with non-standard structures, create a `.smart-runner.yml` configuration:
 
 ```yaml
-env:
-  GADI_USER: ${{ secrets.GADI_USER }}
-  GADI_KEY: ${{ secrets.DEPLOY_KEY }}
-  SCRIPTS_DIR: ${{ secrets.GADI_SCRIPTS_DIR }}
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+notebook_testing:
+  repository_type: 'custom'
+  categories:
+    beginner:
+      patterns: ['intro-*', 'getting-started/*']
+      timeout: 300
+      resources: { memory: '2GB', cpu: 1 }
+    advanced:
+      patterns: ['analysis/*', 'modeling/*']
+      timeout: 1800
+      resources: { memory: '8GB', cpu: 4 }
+  dependencies:
+    conda_environment: 'environment.yml'
+    pip_requirements: 'requirements.txt'
 ```
 
-## 🏗️ Architecture
+### HPC Integration
+
+```yaml
+- name: Test on HPC Cluster
+  uses: ./smart-recipe-runner
+  with:
+    mode: 'both'
+    recipe_name: 'recipe_climate_models.yml'
+    repository_url: 'https://github.com/NCAR/climate-analysis'
+    config: |
+      {
+        "rootpath": {"default": "/glade/work/data"},
+        "drs": {"CMIP6": "ESGF"},
+        "offline": false
+      }
+  env:
+    HPC_SYSTEM: 'pbs'
+    HPC_QUEUE: 'regular'
+    HPC_WALLTIME: '02:00:00'
+```
+
+### Matrix Testing
+
+```yaml
+strategy:
+  matrix:
+    repository: 
+      - 'https://github.com/COSIMA/cosima-recipes'
+      - 'https://github.com/NCAR/python-tutorial'
+    categories:
+      - 'appetisers,tutorials'
+      - 'mains,advanced'
+      
+steps:
+  - name: Test Matrix
+    uses: ./smart-recipe-runner
+    with:
+      mode: 'notebook'
+      repository_url: ${{ matrix.repository }}
+      notebook_categories: ${{ matrix.categories }}
+```
+
+## Architecture
+
+### Notebook Discovery Engine
+- **Pattern-based discovery**: Automatically finds notebooks in repository structures
+- **Metadata extraction**: Analyzes notebook complexity, dependencies, and requirements
+- **Smart categorization**: Classifies notebooks by computational requirements and domain
+
+### Execution Engine
+- **Resource allocation**: Dynamically assigns resources based on notebook complexity
+- **Parallel processing**: Executes multiple notebooks concurrently with resource limits
+- **Timeout management**: Prevents runaway executions with intelligent timeout scaling
+- **Error handling**: Comprehensive error capture and reporting
+
+### Reporting System
+- **Multi-format outputs**: JSON reports, GitHub annotations, log files
+- **Execution metrics**: Runtime, resource usage, success rates
+- **Failure analysis**: Detailed error categorization and debugging information
+
+## Directory Structure
 
 ```
 smart-recipe-runner/
-├── action.yml              # Main action definition
+├── action.yml                 # GitHub Action definition
 ├── lib/
-│   ├── config-manager.py   # Intelligent configuration management
-│   ├── recipe-runner.py    # HPC execution logic
-│   └── resource-detector.py # (Future: ML-based resource prediction)
-└── README.md              # This file
+│   ├── recipe-runner.py      # ESMValTool recipe execution
+│   ├── config-manager.py     # Configuration management
+│   ├── notebook-manager.py   # Notebook discovery and analysis
+│   └── notebook-runner.py    # Notebook execution engine
+├── docs/
+│   ├── architecture.md       # Detailed architecture documentation
+│   ├── configuration.md      # Configuration reference
+│   └── JUPYTER_NOTEBOOK_TESTING_STRATEGY.md
+├── examples/
+│   ├── basic-usage.yml       # Simple recipe testing
+│   ├── notebook-testing.yml  # Notebook testing examples
+│   ├── advanced-usage.yml    # Complex configurations
+│   └── matrix-testing.yml    # Matrix strategy examples
+└── tests/
+    ├── test_recipe_runner.py  # Recipe runner tests
+    ├── test_config_manager.py # Configuration tests
+    ├── test_notebook_manager.py # Notebook discovery tests
+    └── test_notebook_runner.py  # Notebook execution tests
 ```
 
-### Workflow Integration
+## Testing
 
-```mermaid
-graph TD
-    A[Recipe Requested] --> B[Smart Config Manager]
-    B --> C{Config Exists & Current?}
-    C -->|No| D[Auto-Generate Config]
-    C -->|Yes| E[Load Existing Config]
-    D --> F[Recipe Runner]
-    E --> F
-    F --> G[Generate PBS Script]
-    G --> H[Submit to Gadi]
-    H --> I[Monitor & Log]
-    I --> J[Handle Success/Failure]
+```bash
+# Run all tests
+pytest tests/ -v
+
+# Test specific components
+pytest tests/test_notebook_manager.py -v
+pytest tests/test_notebook_runner.py -v
+
+# Run with coverage
+pytest tests/ --cov=lib --cov-report=html
 ```
 
-## 🐛 Troubleshooting
+## Configuration Examples
 
-### Configuration Issues
+### COSIMA Recipes Integration
+```yaml
+- name: Test COSIMA Ocean Analysis
+  uses: ./smart-recipe-runner
+  with:
+    mode: 'notebook'
+    repository_url: 'https://github.com/COSIMA/cosima-recipes'
+    notebook_categories: 'all'
+    notebook_mode: 'test'
+    max_parallel: 2
+    timeout: 7200  # 2 hours for complex ocean models
+```
 
-If recipes aren't found in configuration:
-- Action automatically falls back to heuristic-based detection
-- Use `force_config_regeneration: 'true'` to rebuild config
-- Check `config_status` output for details
+### ESMValTool Recipe with Notebooks
+```yaml
+- name: Comprehensive Climate Analysis
+  uses: ./smart-recipe-runner
+  with:
+    mode: 'both'
+    recipe_name: 'recipe_cmip6_analysis.yml'
+    repository_url: 'https://github.com/NCAR/climate-tutorials'
+    notebook_categories: 'climate,visualization'
+    config: |
+      {
+        "rootpath": {"default": "/data/cmip6"},
+        "drs": {"CMIP6": "ESGF"},
+        "offline": false,
+        "max_parallel_tasks": 4
+      }
+```
 
-### Job Submission Failures
+## Contributing
 
-Common issues:
-- Check `GADI_USER`, `GADI_KEY`, `SCRIPTS_DIR` environment variables
-- Verify HPC project allocation and quotas
-- Review PBS script in dry-run mode
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make changes and add tests
+4. Run the test suite (`pytest tests/ -v`)
+5. Commit changes (`git commit -m 'Add amazing feature'`)
+6. Push to branch (`git push origin feature/amazing-feature`)
+7. Open a Pull Request
 
-### Resource Misallocation
+## License
 
-If recipes are assigned wrong resources:
-- Update known recipe classifications in `config-manager.py`
-- Use `mode: setup-and-run` to force re-analysis
-- Submit feedback via GitHub issues
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
-## 🤝 Contributing
+## Acknowledgments
 
-To enhance the intelligence:
-
-1. **Add Recipe Classifications**: Update `known_heavy_recipes` and `known_megamem_recipes` sets
-2. **Improve Heuristics**: Enhance `analyze_recipe_complexity()` method
-3. **Add New Modes**: Extend execution modes for specific use cases
-
-## 📈 Benefits Over Previous System
-
-| Aspect | Old System | Smart Runner | Improvement |
-|--------|------------|--------------|-------------|
-| **Actions to Maintain** | 2 separate actions | 1 unified action | 50% reduction |
-| **Configuration** | Manual deployment required | Automatic detection | Self-healing |
-| **Resource Detection** | Static configuration | Dynamic analysis | Adaptive |
-| **Error Recovery** | Manual intervention | Automatic fallbacks | Resilient |
-| **Testing** | Complex setup | Built-in dry-run | Developer-friendly |
-
-## 🎯 Future Enhancements
-
-- **ML-Based Resource Prediction**: Learn from execution history
-- **Cross-HPC Support**: Extend beyond Gadi to other systems
-- **Advanced Caching**: Recipe-level execution caching
-- **Performance Analytics**: Resource utilization optimization
+- **ESMValTool Community** for the core recipe framework
+- **COSIMA Community** for ocean analysis notebooks and testing insights
+- **NCAR** for climate analysis tutorials and best practices
+- **Jupyter Project** for the notebook ecosystem

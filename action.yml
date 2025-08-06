@@ -1,280 +1,357 @@
 name: 'Smart Recipe Runner'
-description: 'Intelligent ESMValTool recipe execution with automatic configuration management and HPC integration'
-author: 'ESMValTool Workflow Team'
+description: 'Test ESMValTool recipes and Jupyter notebooks with intelligent resource allocation'
+author: 'ESMValTool Community'
 
 inputs:
-  recipe:
-    description: 'Recipe name to run (use "all" for matrix generation mode)'
-    required: true
+  # Mode selection
   mode:
-    description: 'Execution mode: run-only (default), setup-and-run, config-check, or dry-run'
+    description: 'Execution mode: recipe, notebook, or both'
     required: false
-    default: 'run-only'
+    default: 'recipe'
+  
+  # Recipe-specific inputs
+  recipe_name:
+    description: 'Name of the ESMValTool recipe to run'
+    required: false
+  config:
+    description: 'Recipe configuration (JSON string or file path)'
+    required: false
   esmvaltool_version:
     description: 'ESMValTool version to use'
     required: false
     default: 'main'
   conda_module:
-    description: 'Conda module to load'
+    description: 'Conda module name for ESMValTool'
     required: false
-    default: 'conda/access-med'
-  config_path:
-    description: 'Path to repository configuration file'
+    default: 'esmvaltool'
+  
+  # Notebook-specific inputs
+  repository_url:
+    description: 'URL of the repository containing notebooks to test'
     required: false
-    default: '.github/config/repository-config.yml'
-  force_config_regeneration:
-    description: 'Force regeneration of configuration even if it exists'
+  notebook_categories:
+    description: 'Notebook categories to test (comma-separated: appetisers,mains,tutorials,desserts,papers,all)'
     required: false
-    default: 'false'
-  recipe_directory:
-    description: 'Path to directory containing recipes (for config generation)'
+    default: 'appetisers,tutorials'
+  notebook_mode:
+    description: 'Notebook test mode: test, validate, or dry-run'
     required: false
-    default: 'admin/ESMValTool/esmvaltool/recipes'
-  # Matrix generation inputs
-  generate_matrix:
-    description: 'Generate execution matrix for multiple recipes (true/false)'
-    required: false
-    default: 'false'
-  recipe_filter:
-    description: 'Filter recipes by pattern (regex or comma-separated list)'
-    required: false
-    default: '.*'
-  resource_filter:
-    description: 'Filter by resource group (all, small, medium, large, extra-large)'
-    required: false
-    default: 'all'
+    default: 'test'
   max_parallel:
-    description: 'Maximum parallel executions for matrix jobs'
+    description: 'Maximum parallel notebook executions'
     required: false
-    default: '8'
-  hpc_system:
-    description: 'Target HPC system (gadi, generic)'
+    default: '3'
+  continue_on_error:
+    description: 'Continue testing even if notebooks fail'
     required: false
-    default: 'gadi'
-  project_name:
-    description: 'HPC project name/allocation'
+    default: 'true'
+    
+  # General inputs
+  dry_run:
+    description: 'Perform dry run without actual execution'
     required: false
-    default: 'w40'
-  storage_paths:
-    description: 'HPC storage paths (comma-separated)'
+    default: 'false'
+  timeout:
+    description: 'Maximum execution time in seconds'
     required: false
-    default: 'gdata/kj13,gdata/fs38,gdata/oi10,gdata/rr3,gdata/xp65,gdata/al33,gdata/rt52,gdata/zz93,gdata/cb20'
+    default: '3600'
 
 outputs:
   status:
-    description: 'Recipe execution status (success, failed, skipped, config-updated)'
-    value: ${{ steps.execute.outputs.status }}
+    description: 'Execution status'
+    value: ${{ steps.Set\ Outputs.outputs.status }}
   job_id:
-    description: 'PBS job ID if submitted'
-    value: ${{ steps.execute.outputs.job_id }}
-  log_url:
-    description: 'URL to log artifact'
-    value: ${{ steps.upload.outputs.artifact-url }}
-  config_status:
-    description: 'Configuration management status'
-    value: ${{ steps.config-manager.outputs.status }}
-  resource_group:
-    description: 'Detected resource group for this recipe'
-    value: ${{ steps.config-manager.outputs.resource_group }}
-  # Matrix generation outputs
-  matrix:
-    description: 'Generated execution matrix (JSON format)'
-    value: ${{ steps.matrix-generator.outputs.matrix }}
-  total_recipes:
-    description: 'Total number of recipes in generated matrix'
-    value: ${{ steps.matrix-generator.outputs.total_recipes }}
-  filtered_recipes:
-    description: 'List of filtered recipe names'
-    value: ${{ steps.matrix-generator.outputs.filtered_recipes }}
+    description: 'PBS job ID (if applicable)'
+    value: ${{ steps.Set\ Outputs.outputs.job_id }}
+  report_path:
+    description: 'Path to generated test report'
+    value: ${{ steps.Set\ Outputs.outputs.report_path }}
+  summary:
+    description: 'Execution summary'
+    value: ${{ steps.Set\ Outputs.outputs.summary }}
 
 runs:
   using: 'composite'
   steps:
     - name: Setup Python Environment
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
-    
-    - name: Install Dependencies
       shell: bash
       run: |
-        pip install pyyaml dataclasses-json
-    
-    - name: Smart Configuration Management
-      id: config-manager
+        python -m pip install --upgrade pip
+        python -m pip install pyyaml dataclasses-json pytest pytest-cov nbformat nbconvert
+        
+    - name: Setup Smart Recipe Runner
       shell: bash
       run: |
-        if [ "${{ inputs.generate_matrix }}" = "true" ] || [ "${{ inputs.recipe }}" = "all" ]; then
-          # Matrix generation mode
-          python3 "${{ github.action_path }}/lib/config-manager.py" \
-            --recipe "${{ inputs.recipe }}" \
-            --mode "${{ inputs.mode }}" \
-            --config-path "${{ inputs.config_path }}" \
-            --recipe-dir "${{ inputs.recipe_directory }}" \
-            --force-regen "${{ inputs.force_config_regeneration }}" \
-            --hpc-system "${{ inputs.hpc_system }}" \
-            --project "${{ inputs.project_name }}" \
-            --storage "${{ inputs.storage_paths }}" \
-            --generate-matrix \
-            --recipe-filter "${{ inputs.recipe_filter }}" \
-            --resource-filter "${{ inputs.resource_filter }}" \
-            --max-parallel "${{ inputs.max_parallel }}"
+        export PYTHONPATH="${PYTHONPATH}:${{ github.action_path }}/lib"
+        echo "PYTHONPATH=${PYTHONPATH}" >> $GITHUB_ENV
+        echo "Action path: ${{ github.action_path }}"
+        
+    - name: Validate Inputs
+      shell: bash
+      run: |
+        mode="${{ inputs.mode }}"
+        if [[ "$mode" == "recipe" ]]; then
+          if [[ -z "${{ inputs.recipe_name }}" ]]; then
+            echo "❌ recipe_name is required when mode=recipe"
+            exit 1
+          fi
+        elif [[ "$mode" == "notebook" ]]; then
+          if [[ -z "${{ inputs.repository_url }}" ]]; then
+            echo "❌ repository_url is required when mode=notebook"
+            exit 1
+          fi
+        elif [[ "$mode" == "both" ]]; then
+          if [[ -z "${{ inputs.recipe_name }}" || -z "${{ inputs.repository_url }}" ]]; then
+            echo "❌ Both recipe_name and repository_url are required when mode=both"
+            exit 1
+          fi
         else
-          # Single recipe mode
-          python3 "${{ github.action_path }}/lib/config-manager.py" \
-            --recipe "${{ inputs.recipe }}" \
-            --mode "${{ inputs.mode }}" \
-            --config-path "${{ inputs.config_path }}" \
-            --recipe-dir "${{ inputs.recipe_directory }}" \
-            --force-regen "${{ inputs.force_config_regeneration }}" \
-            --hpc-system "${{ inputs.hpc_system }}" \
-            --project "${{ inputs.project_name }}" \
-            --storage "${{ inputs.storage_paths }}"
+          echo "❌ Invalid mode: $mode. Must be 'recipe', 'notebook', or 'both'"
+          exit 1
         fi
-    
-    - name: Matrix Generation Output
-      id: matrix-generator
-      if: ${{ inputs.generate_matrix == 'true' || inputs.recipe == 'all' }}
+        
+    - name: Clone Notebook Repository
+      if: inputs.mode == 'notebook' || inputs.mode == 'both'
       shell: bash
       run: |
-        # The matrix outputs are set by the config-manager script
-        echo "Matrix generation completed"
-    
-    - name: Recipe Execution
-      id: execute
-      if: ${{ steps.config-manager.outputs.should_run == 'true' && inputs.generate_matrix != 'true' && inputs.recipe != 'all' }}
+        if [[ -n "${{ inputs.repository_url }}" ]]; then
+          echo "🔄 Cloning notebook repository..."
+          git clone "${{ inputs.repository_url }}" ./notebook-repo
+          echo "📁 Repository cloned to ./notebook-repo"
+          ls -la ./notebook-repo
+        fi
+        
+    - name: Discover and Analyze Notebooks
+      if: inputs.mode == 'notebook' || inputs.mode == 'both'
       shell: bash
       run: |
-        python3 "${{ github.action_path }}/lib/recipe-runner.py" \
-          --recipe "${{ inputs.recipe }}" \
-          --config "${{ steps.config-manager.outputs.recipe_config }}" \
-          --esmvaltool-version "${{ inputs.esmvaltool_version }}" \
-          --conda-module "${{ inputs.conda_module }}" \
-          --mode "${{ inputs.mode }}"
-    
-    - name: Download Logs
-      if: always() && steps.execute.outputs.job_submitted == 'true'
-      uses: nicklasfrahm/scp-action@main
-      with:
-        direction: download
-        host: gadi.nci.org.au
-        username: ${{ env.GADI_USER }}
-        insecure_ignore_fingerprint: true
-        key: ${{ env.GADI_KEY }}
-        source: /g/data/kj13/admin/ESMValTool/logs/${{ inputs.recipe }}-${{ inputs.esmvaltool_version }}.out
-        target: ${{ inputs.recipe }}.log
-      continue-on-error: true
-    
-    - name: Upload Logs
-      id: upload
-      if: always() && steps.execute.outputs.job_submitted == 'true'
-      uses: actions/upload-artifact@v4
-      with:
-        name: logs-${{ inputs.recipe }}-${{ inputs.esmvaltool_version }}-${{ github.run_id }}
-        path: ${{ inputs.recipe }}.log
-        retention-days: 30
-      continue-on-error: true
-    
-    - name: Handle Success
-      if: success() && steps.execute.outputs.status == 'success'
-      uses: actions/github-script@v7
-      with:
-        github-token: ${{ env.GITHUB_TOKEN }}
-        script: |
-          const recipeName = '${{ inputs.recipe }}';
-          const title = `Recipe: ${recipeName} failing`;
+        echo "🔍 Discovering notebooks..."
+        python ${{ github.action_path }}/lib/notebook-manager.py analyze \
+          --repo-path ./notebook-repo \
+          --categories "${{ inputs.notebook_categories }}" \
+          --output notebook-matrix.json
+        
+        echo "📊 Notebook analysis complete:"
+        cat > analyze_report.py << 'EOF'
+        import json
+        with open('notebook-matrix.json', 'r') as f:
+            matrix = json.load(f)
+        print(f'Repository type: {matrix["repository_type"]}')
+        print(f'Total notebooks: {matrix["total_notebooks"]}')
+        for cat, data in matrix['categories'].items():
+            if data['count'] > 0:
+                print(f'  {cat}: {data["count"]} notebooks')
+        EOF
+        python analyze_report.py
+        
+    - name: Test Notebooks
+      if: inputs.mode == 'notebook' || inputs.mode == 'both'
+      shell: bash
+      run: |
+        echo "🧪 Testing notebooks..."
+        python ${{ github.action_path }}/lib/notebook-runner.py run \
+          --matrix notebook-matrix.json \
+          --mode "${{ inputs.notebook_mode }}" \
+          --max-parallel "${{ inputs.max_parallel }}" \
+          $([ "${{ inputs.continue_on_error }}" == "true" ] && echo "--continue-on-error") \
+          --output notebook-test-report.json
           
-          // Close any existing failure issues
-          const { data: issues } = await github.rest.issues.listForRepo({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            state: 'open',
-            labels: ['recipe-failure']
-          });
-          
-          const existingIssue = issues.find(issue => issue.title === title);
-          
-          if (existingIssue) {
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: existingIssue.number,
-              body: `✅ Recipe is now working! Fixed in [workflow run](${runUrl})`
-            });
+    - name: Run ESMValTool Recipe
+      if: inputs.mode == 'recipe' || inputs.mode == 'both'
+      shell: bash
+      run: |
+        echo "🧪 Running ESMValTool recipe..."
+        
+        # Determine execution mode
+        if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+          mode="dry-run"
+        else
+          mode="run"
+        fi
+        
+        # Create recipe runner script
+        cat > run_recipe.py << 'EOF'
+        import sys
+        import os
+        import json
+        sys.path.insert(0, os.environ.get('PYTHONPATH', '').split(':')[1])
+        
+        from recipe_runner import SmartRecipeRunner
+        
+        runner = SmartRecipeRunner(
+            hpc_system='local',
+            log_dir='./logs'
+        )
+        
+        try:
+            result = runner.run(
+                recipe_name=sys.argv[1],
+                config_json=sys.argv[2] if sys.argv[2] else '{}',
+                esmvaltool_version=sys.argv[3],
+                conda_module=sys.argv[4],
+                mode=sys.argv[5]
+            )
             
-            await github.rest.issues.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: existingIssue.number,
-              state: 'closed'
-            });
-          }
-    
-    - name: Handle Failure
-      if: failure() && steps.execute.outputs.job_submitted == 'true'
-      uses: actions/github-script@v7
-      with:
-        github-token: ${{ env.GITHUB_TOKEN }}
-        script: |
-          const recipeName = '${{ inputs.recipe }}';
-          const resourceGroup = '${{ steps.config-manager.outputs.resource_group }}';
-          const title = `Recipe: ${recipeName} failing`;
-          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-          const jobId = '${{ steps.execute.outputs.job_id }}' || 'N/A';
-          const submissionStatus = '${{ steps.execute.outputs.status }}' || 'unknown';
-          const configStatus = '${{ steps.config-manager.outputs.status }}' || 'unknown';
-          
-          const { data: issues } = await github.rest.issues.listForRepo({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            state: 'open',
-            labels: ['recipe-failure']
-          });
-          
-          const existingIssue = issues.find(issue => issue.title === title);
-          
-          const failureDetails = `
-          **Failure Details:**
-          - **Workflow Run**: [${context.runId}](${runUrl})
-          - **Job ID**: ${jobId}
-          - **Submission Status**: ${submissionStatus}
-          - **Config Status**: ${configStatus}
-          - **Resource Group**: ${resourceGroup}
-          - **ESMValTool Version**: ${{ inputs.esmvaltool_version }}
-          - **Timestamp**: ${new Date().toISOString()}
-          
-          **Diagnostics:**
-          - Check the [workflow logs](${runUrl}) for detailed error information
-          - Review PBS job logs on Gadi if job was submitted
-          - Verify resource requirements and configuration
-          `;
-          
-          if (!existingIssue) {
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: title,
-              body: `Recipe **${recipeName}** (${resourceGroup} group) failed in Smart Recipe Runner.
+            print(f'Recipe execution result: {result}')
+            
+            # Save results for output
+            with open('recipe-result.json', 'w') as f:
+                json.dump({
+                    'status': result[0] if result else 'unknown',
+                    'job_id': result[1] if len(result) > 1 else None,
+                    'mode': sys.argv[5]
+                }, f)
+                
+        except Exception as e:
+            print(f'Error running recipe: {e}')
+            with open('recipe-result.json', 'w') as f:
+                json.dump({
+                    'status': 'error',
+                    'error': str(e),
+                    'mode': sys.argv[5]
+                }, f)
+            sys.exit(1)
+        EOF
+        
+        python run_recipe.py \
+          "${{ inputs.recipe_name }}" \
+          "${{ inputs.config }}" \
+          "${{ inputs.esmvaltool_version }}" \
+          "${{ inputs.conda_module }}" \
+          "$mode"
+        
+    - name: Generate Combined Report
+      shell: bash
+      run: |
+        echo "📋 Generating execution report..."
+        
+        cat > generate_report.py << 'EOF'
+        import json
+        import os
+        from datetime import datetime
+        
+        # Initialize combined report
+        report = {
+            'timestamp': datetime.now().isoformat(),
+            'mode': os.environ.get('MODE', 'unknown'),
+            'summary': {}
+        }
+        
+        # Add notebook results if available
+        if os.path.exists('notebook-test-report.json'):
+            with open('notebook-test-report.json', 'r') as f:
+                notebook_report = json.load(f)
+            report['notebook_results'] = notebook_report
+            report['summary']['notebooks'] = {
+                'total': notebook_report['total_notebooks'],
+                'successful': notebook_report['successful'],
+                'failed': notebook_report['failed']
+            }
+        
+        # Add recipe results if available  
+        if os.path.exists('recipe-result.json'):
+            with open('recipe-result.json', 'r') as f:
+                recipe_result = json.load(f)
+            report['recipe_results'] = recipe_result
+            report['summary']['recipe'] = {
+                'status': recipe_result['status'],
+                'job_id': recipe_result.get('job_id')
+            }
+        
+        # Write combined report
+        with open('smart-runner-report.json', 'w') as f:
+            json.dump(report, f, indent=2)
+        
+        # Print summary
+        print('🎯 Smart Recipe Runner Summary:')
+        if 'notebooks' in report['summary']:
+            nb_sum = report['summary']['notebooks']
+            print(f'   Notebooks: {nb_sum["successful"]}/{nb_sum["total"]} successful')
+        if 'recipe' in report['summary']:
+            rec_sum = report['summary']['recipe']
+            print(f'   Recipe: {rec_sum["status"]}')
+            if rec_sum.get('job_id'):
+                print(f'   Job ID: {rec_sum["job_id"]}')
+        
+        print(f'   Full report: smart-runner-report.json')
+        EOF
+        
+        MODE="${{ inputs.mode }}" python generate_report.py
+        
+    - name: Set Outputs
+      shell: bash
+      run: |
+        # Read the combined report to set outputs
+        if [[ -f "smart-runner-report.json" ]]; then
+          # Create status extraction script
+          cat > extract_status.py << 'EOF'
+          import json
+          with open('smart-runner-report.json', 'r') as f:
+              report = json.load(f)
               
-              ${failureDetails}
+          # Determine overall status
+          overall_status = 'success'
+          if 'notebook_results' in report:
+              if report['notebook_results']['failed'] > 0:
+                  overall_status = 'partial_failure'
+          if 'recipe_results' in report:
+              if report['recipe_results']['status'] in ['error', 'failed']:
+                  overall_status = 'failure'
+                  
+          print(overall_status)
+          EOF
+          
+          status=$(python extract_status.py)
+          
+          # Create job ID extraction script
+          cat > extract_job_id.py << 'EOF'
+          import json
+          try:
+              with open('smart-runner-report.json', 'r') as f:
+                  report = json.load(f)
+              job_id = report.get('recipe_results', {}).get('job_id', '')
+              print(job_id if job_id else '')
+          except:
+              print('')
+          EOF
+          
+          job_id=$(python extract_job_id.py)
+          
+          # Set GitHub outputs
+          echo "status=$status" >> $GITHUB_OUTPUT
+          echo "job_id=$job_id" >> $GITHUB_OUTPUT
+          echo "report_path=smart-runner-report.json" >> $GITHUB_OUTPUT
+          
+          # Create summary extraction script
+          cat > extract_summary.py << 'EOF'
+          import json
+          with open('smart-runner-report.json', 'r') as f:
+              report = json.load(f)
               
-              This issue was automatically created by the CI system. It will be closed automatically when the recipe succeeds.`,
-              labels: ['recipe-failure', recipeName, resourceGroup, 'automated', 'smart-runner']
-            });
-            console.log(`Created new failure issue for ${recipeName}`);
-          } else {
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: existingIssue.number,
-              body: `🔄 Recipe failed again in [Smart Recipe Runner ${context.runId}](${runUrl})
+          summary_parts = []
+          if 'notebook_results' in report:
+              nb = report['notebook_results']
+              summary_parts.append(f'Notebooks: {nb["successful"]}/{nb["total"]} passed')
+          if 'recipe_results' in report:
+              rec = report['recipe_results']
+              summary_parts.append(f'Recipe: {rec["status"]}')
               
-              ${failureDetails}`
-            });
-            console.log(`Updated existing failure issue #${existingIssue.number} for ${recipeName}`);
-          }
+          print('; '.join(summary_parts))
+          EOF
+          
+          summary=$(python extract_summary.py)
+          
+          echo "summary=$summary" >> $GITHUB_OUTPUT
+          
+          echo "✅ Outputs set:"
+          echo "  Status: $status"
+          echo "  Job ID: $job_id"  
+          echo "  Summary: $summary"
+        else
+          echo "status=error" >> $GITHUB_OUTPUT
+          echo "summary=No report generated" >> $GITHUB_OUTPUT
+        fi
 
 branding:
-  icon: 'zap'
-  color: 'purple'
+  icon: 'play-circle'
+  color: 'blue'
