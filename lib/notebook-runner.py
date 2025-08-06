@@ -2,9 +2,21 @@ import json
 import subprocess
 import tempfile
 import time
+import os
+import importlib.util
 from pathlib import Path
 from typing import Dict, List, Optional
 from dataclasses import dataclass
+
+# Import SmartRecipeRunner for HPC execution capabilities
+import sys
+import importlib.util
+lib_dir = os.path.dirname(os.path.abspath(__file__))
+recipe_runner_path = os.path.join(lib_dir, 'recipe-runner.py')
+spec = importlib.util.spec_from_file_location("recipe_runner", recipe_runner_path)
+recipe_runner = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(recipe_runner)
+SmartRecipeRunner = recipe_runner.SmartRecipeRunner
 
 
 @dataclass
@@ -19,11 +31,14 @@ class NotebookTestResult:
     output_log: Optional[str] = None
 
 
-class NotebookRunner:
-    """Executes and tests Jupyter notebooks."""
+class NotebookRunner(SmartRecipeRunner):
+    """Executes and tests Jupyter notebooks on Gadi HPC."""
     
-    def __init__(self, config_path: str = None):
-        self.config = self._load_config(config_path)
+    def __init__(self, config_path: str = None, gadi_host: str = 'gadi.nci.org.au', 
+                 hpc_system: str = 'gadi', log_dir: str = './logs'):
+        # Initialize SmartRecipeRunner for HPC capabilities
+        super().__init__(gadi_host=gadi_host, hpc_system=hpc_system, log_dir=log_dir)
+        self.notebook_config = self._load_config(config_path)
         self.results: List[NotebookTestResult] = []
         
     def _load_config(self, config_path: str = None) -> Dict:
@@ -246,48 +261,53 @@ class NotebookRunner:
             return result
     
     def _execute_notebook(self, notebook: Dict, repository_type: str, start_time: float) -> NotebookTestResult:
-        """Execute notebook using nbconvert."""
+        """Execute notebook on Gadi HPC using PBS job submission."""
         
         notebook_path = Path(notebook['path'])
-        timeout = self.config['timeouts'].get(notebook['complexity'], 3600)
+        notebook_name = notebook_path.stem
+        timeout = self.notebook_config['timeouts'].get(notebook['complexity'], 3600)
         
-        # Create a temporary copy to avoid modifying original
-        with tempfile.NamedTemporaryFile(suffix='.ipynb', delete=False) as tmp_file:
-            import shutil
-            shutil.copy2(notebook_path, tmp_file.name)
-            temp_notebook = Path(tmp_file.name)
-            
+        # Get resource profile for this notebook
+        profile = self._get_resource_profile(notebook)
+        
+        # Generate PBS script for notebook execution
+        pbs_script = self._generate_notebook_pbs_script(notebook, repository_type, profile, timeout)
+        
         try:
-            # Build execution command
-            cmd = [
-                'jupyter', 'nbconvert',
-                '--to', 'notebook',
-                '--execute',
-                '--inplace',
-                f'--ExecutePreprocessor.timeout={timeout}',
-                '--ExecutePreprocessor.kernel_name=python3',
-                '--allow-errors',  # Continue execution even if cells fail
-                str(temp_notebook)
-            ]
+            # Submit PBS job to Gadi
+            status, job_id, initial_status = self.submit_job(f"notebook_{notebook_name}", pbs_script)
             
-            # Execute notebook
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout + 60  # Add buffer to subprocess timeout
-            )
+            if status in ["upload_failed", "submission_failed"]:
+                return NotebookTestResult(
+                    path=notebook['path'],
+                    category=notebook['category'],
+                    complexity=notebook['complexity'],
+                    success=False,
+                    execution_time=time.time() - start_time,
+                    error_message=f"Job submission failed: {initial_status}"
+                )
             
-            success = result.returncode == 0
+            print(f"📋 Submitted notebook {notebook['name']} as job {job_id}")
+            
+            # Monitor job execution
+            final_status = self.monitor_job(job_id, timeout + 300)  # Add buffer for job queuing
             execution_time = time.time() - start_time
             
-            # Prepare error message if execution failed
+            # Determine success based on job completion
+            success = final_status == "completed"
+            
+            # Get error message if job failed
             error_message = None
             if not success:
-                error_message = f"Exit code {result.returncode}"
-                if result.stderr:
-                    error_message += f": {result.stderr[:500]}"  # Limit error message length
-                    
+                if final_status == "timeout":
+                    error_message = f"Job timeout after {timeout + 300}s"
+                elif final_status == "failed":
+                    # Try to get error details from job output
+                    error_log = self._get_job_error_log(f"notebook_{notebook_name}")
+                    error_message = f"Job failed: {error_log[:500] if error_log else 'Unknown error'}"
+                else:
+                    error_message = f"Job status: {final_status}"
+            
             notebook_result = NotebookTestResult(
                 path=notebook['path'],
                 category=notebook['category'],
@@ -295,7 +315,7 @@ class NotebookRunner:
                 success=success,
                 execution_time=execution_time,
                 error_message=error_message,
-                output_log=result.stdout if result.stdout else None
+                output_log=None  # Could fetch from job output if needed
             )
             
             print(f"✅ Executed {notebook['name']} in {execution_time:.1f}s" if success 
@@ -303,36 +323,149 @@ class NotebookRunner:
             
             return notebook_result
             
-        except subprocess.TimeoutExpired:
-            execution_time = time.time() - start_time
-            result = NotebookTestResult(
-                path=notebook['path'],
-                category=notebook['category'],
-                complexity=notebook['complexity'],
-                success=False,
-                execution_time=execution_time,
-                error_message=f"Timeout after {timeout}s"
-            )
-            print(f"⏰ Timeout {notebook['name']} after {timeout}s")
-            return result
-            
         except Exception as e:
             execution_time = time.time() - start_time
-            result = NotebookTestResult(
+            return NotebookTestResult(
                 path=notebook['path'],
                 category=notebook['category'],
                 complexity=notebook['complexity'],
                 success=False,
                 execution_time=execution_time,
-                error_message=str(e)
+                error_message=f"Execution error: {str(e)}"
             )
-            print(f"❌ Exception {notebook['name']}: {e}")
-            return result
-            
-        finally:
-            # Clean up temporary file
-            if temp_notebook.exists():
-                temp_notebook.unlink()
+    
+    def _get_resource_profile(self, notebook: Dict) -> Dict:
+        """Get resource profile for notebook based on category and complexity."""
+        category = notebook['category']
+        complexity = notebook['complexity']
+        
+        profiles = self.notebook_config.get('resource_profiles', {})
+        
+        # Get category-specific profile, fall back to generic
+        category_profiles = profiles.get(category, profiles.get('generic', {}))
+        
+        # Get complexity-specific profile, fall back to 'light'
+        profile = category_profiles.get(complexity, category_profiles.get('light', {
+            'queue': 'copyq', 'memory': '4gb', 'walltime': '0:30:00', 'ncpus': 1
+        }))
+        
+        return profile
+    
+    def _generate_notebook_pbs_script(self, notebook: Dict, repository_type: str, 
+                                    profile: Dict, timeout: int) -> str:
+        """Generate PBS script for notebook execution."""
+        
+        notebook_path = notebook['path']
+        notebook_name = Path(notebook_path).stem
+        
+        # Get environment setup based on repository type
+        env_setup = self._get_environment_setup(repository_type)
+        
+        pbs_script = f"""#!/bin/bash -l 
+#PBS -S /bin/bash
+#PBS -P w40
+#PBS -l storage=gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/xp65+gdata/al33+gdata/rt52+gdata/zz93+gdata/cb20
+#PBS -q {profile['queue']}
+#PBS -l walltime={profile['walltime']}
+#PBS -l mem={profile['memory']}
+#PBS -l ncpus={profile['ncpus']}
+#PBS -N notebook_{notebook_name}
+#PBS -j oe
+#PBS -o {self.scripts_dir}/../notebooks/logs/notebook_{notebook_name}.$PBS_JOBID.out
+
+echo "=========================================="
+echo "PBS Job Information:"
+echo "Job ID: $PBS_JOBID"
+echo "Job Name: $PBS_JOBNAME"
+echo "Queue: $PBS_QUEUE"
+echo "Start Time: $(date)"
+echo "Working Directory: $PBS_O_WORKDIR"
+echo "Host: $(hostname)"
+echo "=========================================="
+
+# Set up environment
+cd $PBS_O_WORKDIR
+{env_setup}
+
+# Create output directory for notebooks
+mkdir -p {self.scripts_dir}/../notebooks/outputs
+
+# Navigate to the notebook directory
+NOTEBOOK_PATH="{notebook_path}"
+NOTEBOOK_DIR=$(dirname "$NOTEBOOK_PATH")
+cd "$NOTEBOOK_DIR"
+
+echo "Executing notebook: $NOTEBOOK_PATH"
+echo "Working directory: $(pwd)"
+
+# Execute notebook with timeout
+timeout {timeout} jupyter nbconvert \\
+    --to notebook \\
+    --execute \\
+    --inplace \\
+    --ExecutePreprocessor.timeout={timeout} \\
+    --ExecutePreprocessor.kernel_name=python3 \\
+    --allow-errors \\
+    "$NOTEBOOK_PATH"
+
+NOTEBOOK_EXIT_CODE=$?
+
+echo "Notebook execution completed with exit code: $NOTEBOOK_EXIT_CODE"
+echo "End Time: $(date)"
+
+# Copy executed notebook to outputs directory
+if [ $NOTEBOOK_EXIT_CODE -eq 0 ]; then
+    cp "$NOTEBOOK_PATH" "{self.scripts_dir}/../notebooks/outputs/{notebook_name}_executed.ipynb"
+    echo "Executed notebook saved to outputs directory"
+fi
+
+exit $NOTEBOOK_EXIT_CODE
+"""
+        return pbs_script
+    
+    def _get_environment_setup(self, repository_type: str) -> str:
+        """Get environment setup commands based on repository type."""
+        
+        environments = self.notebook_config.get('environments', {})
+        env_name = environments.get(repository_type, 'base')
+        
+        if env_name == 'conda/analysis3':
+            return """
+# Load conda and activate analysis3 environment
+module use /g/data/hh5/public/modules
+module load conda/analysis3
+"""
+        elif env_name == 'base':
+            return """
+# Load basic Python environment
+module load python3/3.11.0
+"""
+        else:
+            return f"""
+# Load custom environment
+module load {env_name}
+"""
+    
+    def _get_job_error_log(self, job_name: str) -> str:
+        """Get error log from failed job."""
+        
+        log_cmd = f"""
+        cd {self.scripts_dir}/../notebooks/logs
+        # Find the most recent log file for this job
+        LOG_FILE=$(ls -t {job_name}.*.out 2>/dev/null | head -1)
+        if [ -n "$LOG_FILE" ]; then
+            tail -20 "$LOG_FILE"
+        else
+            echo "No log file found for {job_name}"
+        fi
+        """
+        
+        ret_code, stdout, stderr = self.execute_ssh_command(log_cmd)
+        
+        if ret_code == 0:
+            return stdout.strip()
+        else:
+            return f"Could not retrieve log: {stderr}"
     
     def generate_report(self, output_path: str = 'notebook-test-report.json'):
         """Generate test report."""
