@@ -44,11 +44,11 @@ Error: Connection timed out
 
 **Check SSH Key Format**
 ```yaml
-# Ensure your GADI_KEY secret includes proper headers
+# Ensure your GADI_KEY secret includes the complete SSH private key
 GADI_KEY: |
-  -----BEGIN OPENSSH PRIVATE KEY-----
-  your-private-key-content-here
-  -----END OPENSSH PRIVATE KEY-----
+  <your complete SSH private key>
+  <including headers and footers>
+  <in standard OpenSSH format>
 ```
 
 **Verify SSH Key Permissions**

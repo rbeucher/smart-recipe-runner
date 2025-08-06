@@ -10,9 +10,8 @@ The Smart Recipe Runner works out of the box with minimal configuration. For bas
 # Required secrets in your GitHub repository
 GADI_USER: your-hpc-username
 GADI_KEY: |
-  -----BEGIN OPENSSH PRIVATE KEY-----
-  your-private-key-content
-  -----END OPENSSH PRIVATE KEY-----
+  <paste your SSH private key here>
+  <multi-line SSH private key in OpenSSH format>
 GADI_SCRIPTS_DIR: /path/to/your/scripts/directory
 ```
 

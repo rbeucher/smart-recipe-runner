@@ -10,6 +10,9 @@ inputs:
     default: 'recipe'
   
   # Recipe-specific inputs
+  recipe:
+    description: 'Name of the ESMValTool recipe to run (alias for recipe_name)'
+    required: false
   recipe_name:
     description: 'Name of the ESMValTool recipe to run'
     required: false
@@ -71,6 +74,9 @@ outputs:
   job_id:
     description: 'PBS job ID (if applicable)'
     value: ${{ steps.Set\ Outputs.outputs.job_id }}
+  resource_group:
+    description: 'Resource group used for execution'
+    value: ${{ steps.Set\ Outputs.outputs.resource_group }}
   report_path:
     description: 'Path to generated test report'
     value: ${{ steps.Set\ Outputs.outputs.report_path }}
@@ -353,9 +359,24 @@ runs:
           
           job_id=$(python extract_job_id.py)
           
+          # Create resource group extraction script
+          cat > extract_resource_group.py << 'EOF'
+          import json
+          try:
+              with open('smart-runner-report.json', 'r') as f:
+                  report = json.load(f)
+              resource_group = report.get('recipe_results', {}).get('resource_group', 'unknown')
+              print(resource_group if resource_group else 'unknown')
+          except:
+              print('unknown')
+          EOF
+          
+          resource_group=$(python extract_resource_group.py)
+          
           # Set GitHub outputs
           echo "status=$status" >> $GITHUB_OUTPUT
           echo "job_id=$job_id" >> $GITHUB_OUTPUT
+          echo "resource_group=$resource_group" >> $GITHUB_OUTPUT
           echo "report_path=smart-runner-report.json" >> $GITHUB_OUTPUT
           
           # Create summary extraction script
@@ -381,7 +402,8 @@ runs:
           
           echo "✅ Outputs set:"
           echo "  Status: $status"
-          echo "  Job ID: $job_id"  
+          echo "  Job ID: $job_id"
+          echo "  Resource Group: $resource_group"
           echo "  Summary: $summary"
         else
           echo "status=error" >> $GITHUB_OUTPUT
