@@ -1,0 +1,126 @@
+name: Multiple Recipes - Matrix Strategy
+
+on:
+  workflow_dispatch:
+    inputs:
+      recipe_filter:
+        description: 'Recipe filter (regex pattern or comma-separated list)'
+        required: false
+        type: string
+        default: '.*'
+      resource_group:
+        description: 'Resource group to run'
+        required: false
+        type: choice
+        options:
+          - all
+          - small
+          - medium
+          - large
+          - extra-large
+        default: all
+      esmvaltool_version:
+        description: 'ESMValTool version'
+        required: false
+        type: choice
+        options:
+          - main
+          - v2.8.0
+          - develop
+        default: main
+
+env:
+  GADI_USER: ${{ secrets.GADI_USER }}
+  GADI_KEY: ${{ secrets.GADI_KEY }}
+  SCRIPTS_DIR: ${{ secrets.GADI_SCRIPTS_DIR }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  setup:
+    name: Setup Recipe Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.generate-matrix.outputs.matrix }}
+      total-recipes: ${{ steps.generate-matrix.outputs.total_recipes }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Generate Configuration and Matrix
+        id: generate-matrix
+        uses: ACCESS-NRI/smart-recipe-runner@v1
+        with:
+          recipe: all  # Special value to trigger matrix generation
+          mode: config-check
+          resource_filter: ${{ github.event.inputs.resource_group }}
+          recipe_filter: ${{ github.event.inputs.recipe_filter }}
+          generate_matrix: true
+          force_config_regeneration: true
+      
+      - name: Display Matrix Summary
+        run: |
+          echo "🎯 Generated execution matrix:"
+          echo "Total recipes: ${{ steps.generate-matrix.outputs.total_recipes }}"
+          echo "Matrix groups: ${{ steps.generate-matrix.outputs.matrix }}"
+
+  execute-recipes:
+    name: Execute ${{ matrix.group }} - ${{ matrix.recipe }}
+    runs-on: ubuntu-latest
+    needs: setup
+    if: ${{ needs.setup.outputs.total-recipes > 0 }}
+    strategy:
+      fail-fast: false
+      max-parallel: 8  # Control parallel execution
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Execute Recipe
+        id: execute-recipe
+        uses: ACCESS-NRI/smart-recipe-runner@v1
+        with:
+          recipe: ${{ matrix.recipe }}
+          mode: run-only  # Configuration already generated in setup
+          esmvaltool_version: ${{ github.event.inputs.esmvaltool_version }}
+          resource_group: ${{ matrix.group }}
+        continue-on-error: true
+      
+      - name: Recipe Status
+        run: |
+          echo "📊 Recipe: ${{ matrix.recipe }}"
+          echo "🏷️  Group: ${{ matrix.group }}"
+          echo "📋 Status: ${{ steps.execute-recipe.outputs.status }}"
+          echo "🆔 Job ID: ${{ steps.execute-recipe.outputs.job_id }}"
+          
+          if [ "${{ steps.execute-recipe.outputs.status }}" != "success" ]; then
+            echo "❌ Recipe execution failed"
+            exit 1
+          else
+            echo "✅ Recipe execution successful"
+          fi
+
+  summary:
+    name: Execution Summary
+    runs-on: ubuntu-latest
+    needs: [setup, execute-recipes]
+    if: always()
+    steps:
+      - name: Collect Results
+        run: |
+          echo "📈 Execution Summary"
+          echo "==================="
+          echo "Total recipes planned: ${{ needs.setup.outputs.total-recipes }}"
+          
+          # Check job results
+          if [ "${{ needs.execute-recipes.result }}" = "success" ]; then
+            echo "✅ All recipes completed successfully"
+          elif [ "${{ needs.execute-recipes.result }}" = "failure" ]; then
+            echo "❌ Some recipes failed (check individual job logs)"
+          else
+            echo "⚠️  Recipes execution was cancelled or skipped"
+          fi
+          
+          echo ""
+          echo "🔍 For detailed results, check individual job logs above"

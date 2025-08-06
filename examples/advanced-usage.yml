@@ -1,0 +1,72 @@
+name: Advanced ESMValTool Recipe Execution
+
+on:
+  workflow_dispatch:
+    inputs:
+      recipe:
+        description: 'Recipe name to run'
+        required: true
+        default: 'recipe_climwip_test_basic'
+      mode:
+        description: 'Execution mode'
+        required: false
+        type: choice
+        options:
+          - run-only
+          - setup-and-run
+          - config-check
+        default: 'run-only'
+      esmvaltool_version:
+        description: 'ESMValTool version'
+        required: false
+        type: choice
+        options:
+          - main
+          - v2.13.0
+          - v2.12.0
+        default: 'main'
+      force_config_regeneration:
+        description: 'Force configuration regeneration'
+        required: false
+        type: boolean
+        default: false
+      hpc_project:
+        description: 'HPC project allocation'
+        required: false
+        default: 'w40'
+
+env:
+  GADI_USER: ${{ secrets.GADI_USER }}
+  GADI_KEY: ${{ secrets.GADI_KEY }}
+  SCRIPTS_DIR: ${{ secrets.GADI_SCRIPTS_DIR }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  run-recipe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Advanced Recipe Execution
+        uses: ACCESS-NRI/smart-recipe-runner@v1
+        with:
+          recipe: ${{ github.event.inputs.recipe }}
+          mode: ${{ github.event.inputs.mode }}
+          esmvaltool_version: ${{ github.event.inputs.esmvaltool_version }}
+          force_config_regeneration: ${{ github.event.inputs.force_config_regeneration }}
+          project_name: ${{ github.event.inputs.hpc_project }}
+          conda_module: 'conda/access-med'
+          hpc_system: 'gadi'
+          storage_paths: 'gdata/kj13,gdata/fs38,gdata/oi10,gdata/rr3,gdata/xp65,gdata/al33,gdata/rt52,gdata/zz93,gdata/cb20'
+      
+      - name: Display Results
+        run: |
+          echo "🎯 Recipe Execution Completed"
+          echo "Recipe: ${{ github.event.inputs.recipe }}"
+          echo "Mode: ${{ github.event.inputs.mode }}"
+          echo "Status: ${{ steps.run.outputs.status }}"
+          echo "Resource Group: ${{ steps.run.outputs.resource_group }}"
+          if [ "${{ steps.run.outputs.job_id }}" != "" ]; then
+            echo "PBS Job ID: ${{ steps.run.outputs.job_id }}"
+          fi
