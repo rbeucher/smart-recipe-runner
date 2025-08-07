@@ -88,28 +88,28 @@ inputs:
 outputs:
   status:
     description: 'Execution status'
-    value: ${{ steps.Set\ Outputs.outputs.status }}
+    value: ${{ steps.set-outputs.outputs.status }}
   job_id:
     description: 'PBS job ID (if applicable)'
-    value: ${{ steps.Set\ Outputs.outputs.job_id }}
+    value: ${{ steps.set-outputs.outputs.job_id }}
   resource_group:
     description: 'Resource group used for execution'
-    value: ${{ steps.Set\ Outputs.outputs.resource_group }}
+    value: ${{ steps.set-outputs.outputs.resource_group }}
   report_path:
     description: 'Path to generated test report'
-    value: ${{ steps.Set\ Outputs.outputs.report_path }}
+    value: ${{ steps.set-outputs.outputs.report_path }}
   summary:
     description: 'Execution summary'
-    value: ${{ steps.Set\ Outputs.outputs.summary }}
+    value: ${{ steps.set-outputs.outputs.summary }}
   dashboard_url:
     description: 'Dashboard URL (if enabled)'
-    value: ${{ steps.Set\ Outputs.outputs.dashboard_url }}
+    value: ${{ steps.set-outputs.outputs.dashboard_url }}
   dashboard_status:
     description: 'Dashboard generation status'
-    value: ${{ steps.Set\ Outputs.outputs.dashboard_status }}
+    value: ${{ steps.set-outputs.outputs.dashboard_status }}
   issue_number:
     description: 'GitHub issue number (if created)'
-    value: ${{ steps.Set\ Outputs.outputs.issue_number }}
+    value: ${{ steps.set-outputs.outputs.issue_number }}
 
 runs:
   using: 'composite'
@@ -500,6 +500,7 @@ runs:
         echo "Run ID: $GITHUB_RUN_ID"
         
     - name: Set Outputs
+      id: set-outputs
       shell: bash
       run: |
         # Read the combined report to set outputs
