@@ -16,6 +16,10 @@ inputs:
   recipe_name:
     description: 'Name of the ESMValTool recipe to run'
     required: false
+  recipe_type:
+    description: 'Type of recipe: esmvaltool or cosima'
+    required: false
+    default: 'esmvaltool'
   esmvaltool_repository:
     description: 'ESMValTool repository URL'
     required: false
@@ -76,10 +80,6 @@ inputs:
     default: '30'
     
   # General inputs
-  dry_run:
-    description: 'Perform dry run without actual execution'
-    required: false
-    default: 'false'
   timeout:
     description: 'Maximum execution time in seconds'
     required: false
@@ -151,18 +151,27 @@ runs:
           exit 1
         fi
         
-    - name: Clone ESMValTool Repository
+        # Validate recipe type
+        recipe_type="${{ inputs.recipe_type }}"
+        if [[ "$recipe_type" != "esmvaltool" && "$recipe_type" != "cosima" ]]; then
+          echo "❌ Invalid recipe_type: $recipe_type. Must be 'esmvaltool' or 'cosima'"
+          exit 1
+        fi
+        
+    - name: Setup for Repository Cloning
       if: inputs.mode == 'recipe' || inputs.mode == 'both'
       shell: bash
       run: |
-        echo "🔄 Cloning ESMValTool repository..."
-        git clone --depth 1 --branch "${{ inputs.esmvaltool_branch }}" "${{ inputs.esmvaltool_repository }}" ./esmvaltool-repo
-        echo "📁 ESMValTool repository cloned to ./esmvaltool-repo"
-        echo "🔍 Available recipes:"
-        find ./esmvaltool-repo/esmvaltool/recipes -name "*.yml" | head -10
-        echo "   ... (showing first 10 recipes)"
-        total_recipes=$(find ./esmvaltool-repo/esmvaltool/recipes -name "*.yml" | wc -l)
-        echo "📊 Total recipes found: $total_recipes"
+        echo "🎯 Preparing for HPC execution..."
+        echo "Repository will be cloned on Gadi during PBS execution"
+        echo "Recipe type: ${{ inputs.recipe_type }}"
+        
+        if [[ "${{ inputs.recipe_type }}" == "esmvaltool" ]]; then
+          echo "� ESMValTool repository: ${{ inputs.esmvaltool_repository }}"
+          echo "� ESMValTool branch: ${{ inputs.esmvaltool_branch }}"
+        elif [[ "${{ inputs.recipe_type }}" == "cosima" ]]; then
+          echo "� COSIMA repository: ${{ inputs.esmvaltool_repository }}"
+        fi
         
     - name: Clone Notebook Repository
       if: inputs.mode == 'notebook' || inputs.mode == 'both'
@@ -210,22 +219,11 @@ runs:
           $([ "${{ inputs.continue_on_error }}" == "true" ] && echo "--continue-on-error") \
           --output notebook-test-report.json
           
-    - name: Run ESMValTool Recipe
+    - name: Generate PBS Script for HPC Execution
       if: inputs.mode == 'recipe' || inputs.mode == 'both'
       shell: bash
       run: |
-        echo "🧪 Running ESMValTool recipe..."
-        
-        # Determine execution mode
-        if [[ "${{ inputs.dry_run }}" == "true" ]]; then
-          mode="dry-run"
-        elif [[ -n "$GADI_USER" ]]; then
-          echo "🔄 Using appleboy/ssh-action method - generating PBS script"
-          mode="generate-pbs-only"
-        else
-          echo "🔄 Running locally (no HPC credentials found)"
-          mode="local"
-        fi
+        echo "🎯 Generating PBS script for HPC execution..."
         
         # Create recipe runner script
         cat > run_recipe.py << 'EOF'
@@ -237,62 +235,54 @@ runs:
         
         from recipe_runner import SmartRecipeRunner
         
-        # Determine recipe directory - look for cloned ESMValTool repo
-        recipe_dir = None
-        potential_paths = [
-            './esmvaltool-repo/esmvaltool/recipes',
-            '../esmvaltool-repo/esmvaltool/recipes',
-            'esmvaltool-repo/esmvaltool/recipes'
-        ]
-        for path in potential_paths:
-            if Path(path).exists():
-                recipe_dir = path
-                print(f"📁 Found ESMValTool recipes at: {recipe_dir}")
-                break
-        
-        # Always use local mode - SSH actions handle HPC execution
-        runner = SmartRecipeRunner(
-            hpc_system='local',
-            log_dir='./logs',
-            recipe_dir=recipe_dir
-        )
+        # Create runner for PBS generation
+        runner = SmartRecipeRunner(log_dir='./logs')
         
         try:
             result = runner.run(
                 recipe_name=sys.argv[1],
                 config_json=sys.argv[2] if sys.argv[2] else '{}',
-                esmvaltool_version=sys.argv[3],
-                conda_module=sys.argv[4],
-                mode=sys.argv[5]
+                recipe_type=sys.argv[3],
+                esmvaltool_version=sys.argv[4],
+                conda_module=sys.argv[5],
+                repository_url=sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] != 'None' else None
             )
             
-            print(f'Recipe execution result: {result}')
+            print(f'PBS generation result: {result}')
             
             # Save results for output
             with open('recipe-result.json', 'w') as f:
                 json.dump({
                     'status': result[0] if result else 'unknown',
-                    'job_id': result[1] if len(result) > 1 else None,
-                    'mode': sys.argv[5]
+                    'pbs_file': result[1] if len(result) > 1 else None,
+                    'recipe_type': sys.argv[3]
                 }, f)
                 
         except Exception as e:
-            print(f'Error running recipe: {e}')
+            print(f'Error generating PBS script: {e}')
             with open('recipe-result.json', 'w') as f:
                 json.dump({
                     'status': 'error',
                     'error': str(e),
-                    'mode': sys.argv[5]
+                    'recipe_type': sys.argv[3]
                 }, f)
             sys.exit(1)
         EOF
         
+        # Determine repository URL for cloning on Gadi
+        repo_url="${{ inputs.esmvaltool_repository }}"
+        if [[ "${{ inputs.recipe_type }}" == "cosima" ]]; then
+          # Use the repository URL for COSIMA recipes
+          repo_url="${{ inputs.esmvaltool_repository }}"
+        fi
+        
         python run_recipe.py \
           "${{ inputs.recipe_name }}" \
           "${{ inputs.config }}" \
+          "${{ inputs.recipe_type }}" \
           "${{ inputs.esmvaltool_version }}" \
           "${{ inputs.conda_module }}" \
-          "$mode"
+          "$repo_url"
           
     - name: Upload PBS Script via SCP
       if: (inputs.mode == 'recipe' || inputs.mode == 'both') && env.GADI_USER != ''
@@ -303,7 +293,7 @@ runs:
         key: ${{ env.GADI_KEY }}
         passphrase: ${{ env.GADI_KEY_PASSPHRASE }}
         source: "launch_${{ inputs.recipe_name }}.pbs"
-        target: "${{ env.SCRIPTS_DIR }}/../ESMValTool/jobs/"
+        target: "${{ env.SCRIPTS_DIR }}/../jobs/"
         timeout: 60s
         
     - name: Submit PBS Job via SSH
@@ -319,9 +309,10 @@ runs:
           # Set up variables
           SCRIPTS_DIR="${{ env.SCRIPTS_DIR }}"
           RECIPE_NAME="${{ inputs.recipe_name }}"
+          RECIPE_TYPE="${{ inputs.recipe_type }}"
           
           # Navigate to jobs directory
-          cd $SCRIPTS_DIR/../ESMValTool/jobs
+          cd $SCRIPTS_DIR/../jobs
           
           # Backup existing script if it exists
           if [ -f "launch_${RECIPE_NAME}.pbs" ]; then
@@ -329,11 +320,17 @@ runs:
             echo "📁 Backed up existing PBS script"
           fi
           
-          echo "📋 Submitting PBS job for ${RECIPE_NAME}..."
+          echo "� Submitting ${RECIPE_TYPE^^} PBS job for ${RECIPE_NAME}..."
           if [ -f "launch_${RECIPE_NAME}.pbs" ]; then
             JOB_ID=$(qsub launch_${RECIPE_NAME}.pbs)
             echo "✅ Job submitted: $JOB_ID"
             echo "job-id=$JOB_ID" >> $GITHUB_ENV
+            
+            # Monitor job briefly for immediate failures
+            sleep 5
+            job_status=$(qstat -f $JOB_ID 2>/dev/null | grep job_state | awk '{print $3}')
+            echo "📊 Initial job status: $job_status"
+            
           else
             echo "❌ Error: PBS script launch_${RECIPE_NAME}.pbs not found"
             echo "Available files:"
@@ -376,7 +373,9 @@ runs:
             report['recipe_results'] = recipe_result
             report['summary']['recipe'] = {
                 'status': recipe_result['status'],
-                'job_id': recipe_result.get('job_id')
+                'pbs_file': recipe_result.get('pbs_file'),
+                'recipe_type': recipe_result.get('recipe_type', 'esmvaltool'),
+                'job_id': os.environ.get('job-id')  # Set by SSH action
             }
         
         # Write combined report
@@ -390,9 +389,11 @@ runs:
             print(f'   Notebooks: {nb_sum["successful"]}/{nb_sum["total"]} successful')
         if 'recipe' in report['summary']:
             rec_sum = report['summary']['recipe']
-            print(f'   Recipe: {rec_sum["status"]}')
+            print(f'   Recipe: {rec_sum["status"]} ({rec_sum["recipe_type"]})')
             if rec_sum.get('job_id'):
                 print(f'   Job ID: {rec_sum["job_id"]}')
+            if rec_sum.get('pbs_file'):
+                print(f'   PBS File: {rec_sum["pbs_file"]}')
         
         print(f'   Full report: smart-runner-report.json')
         EOF

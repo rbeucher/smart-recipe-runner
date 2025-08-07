@@ -18,67 +18,17 @@ import time
 
 
 class SmartRecipeRunner:
-    """Intelligent recipe execution manager."""
+    """HPC PBS script generator for ESMValTool and COSIMA recipes."""
     
-    def __init__(self, hpc_system: str = 'local', log_dir: str = './logs', recipe_dir: Optional[str] = None):
-        self.hpc_system = hpc_system
+    def __init__(self, log_dir: str = './logs'):
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(exist_ok=True)
-        
-        # Custom recipe directory for cloned repositories
-        self.custom_recipe_dir = recipe_dir
-        if recipe_dir:
-            self.custom_recipe_dir = Path(recipe_dir)
-            print(f"🔗 Using custom recipe directory: {self.custom_recipe_dir}")
-        
-        # HPC connection details (used for path determination)
-        self.gadi_host = 'gadi.nci.org.au'
-        self.gadi_user = os.environ.get('GADI_USER')
-        self.scripts_dir = os.environ.get('SCRIPTS_DIR')
-        
-        if self.hpc_system == 'gadi' and not all([self.gadi_user, self.scripts_dir]):
-            print("⚠️  Warning: HPC environment variables not set, using local mode")
-            self.hpc_system = 'local'
+        print("🎯 SmartRecipeRunner: Configured for HPC PBS script generation")
 
-    def check_recent_runs(self, recipe_name: str) -> bool:
-        """Check if recipe has run successfully recently."""
-        # For now, always run - this could be enhanced with GitHub API calls
-        # to check recent workflow runs similar to the original run-recipe action
-        return True
-
-    def determine_esmvaltool_path(self, version: str) -> tuple[str, str]:
-        """Determine ESMValTool installation path based on version."""
-        
-        # If using custom recipe directory (cloned repo), use that
-        if self.custom_recipe_dir and self.custom_recipe_dir.exists():
-            return str(self.custom_recipe_dir.parent.parent), 'esmvaltool/recipes'
-        
-        # Default version mapping for traditional installations
-        version_mapping = {
-            'main': ('../ESMValTool-main', 'esmvaltool/recipes'),
-            'latest': ('../ESMValTool-main', 'esmvaltool/recipes'),
-            'v2.13.0': ('../ESMValTool-2.13', 'esmvaltool/recipes'),
-            'v2.12.0': ('../ESMValTool-2.12', 'esmvaltool/recipes'),
-            'v2.11.0': ('../ESMValTool-2.11', 'esmvaltool/recipes'),
-        }
-        
-        if version in version_mapping:
-            return version_mapping[version]
-        elif version.startswith('v2.13'):
-            return ('../ESMValTool-2.13', 'esmvaltool/recipes')
-        elif version.startswith('v2.12'):
-            return ('../ESMValTool-2.12', 'esmvaltool/recipes')
-        elif version.startswith('v2.11'):
-            return ('../ESMValTool-2.11', 'esmvaltool/recipes')
-        else:
-            # Custom version/branch
-            return (f'../ESMValTool-{version}', 'esmvaltool/recipes')
-
-    def generate_pbs_script(self, recipe_name: str, config: Dict, 
-                           esmvaltool_version: str, conda_module: str) -> str:
-        """Generate PBS script for recipe execution."""
-        
-        esmval_path, recipes_path = self.determine_esmvaltool_path(esmvaltool_version)
+    def generate_esmvaltool_pbs_script(self, recipe_name: str, config: Dict, 
+                                      esmvaltool_version: str, conda_module: str, 
+                                      repository_url: str = None) -> str:
+        """Generate PBS script for ESMValTool recipe execution on Gadi."""
         
         # Determine config file path based on version
         config_file_version = esmvaltool_version if esmvaltool_version != 'main' else 'main'
@@ -88,6 +38,24 @@ class SmartRecipeRunner:
         # Build max_parallel_tasks parameter if specified
         max_parallel_tasks = config.get('max_parallel_tasks')
         parallel_tasks_param = f" --max_parallel_tasks={max_parallel_tasks}" if max_parallel_tasks else ""
+        
+        # Set up repository cloning section - always clone on Gadi
+        repo_to_clone = repository_url or 'https://github.com/ESMValGroup/ESMValTool'
+        git_clone_section = f"""
+# Clone repository if needed
+cd $SCRIPTS_DIR/../
+if [ ! -d "ESMValTool-ci" ]; then
+    git clone {repo_to_clone} ESMValTool-ci
+else
+    cd ESMValTool-ci
+    git pull origin main
+    cd ..
+fi
+
+# Set paths for cloned repository
+ESMVAL_PATH="$SCRIPTS_DIR/../ESMValTool-ci"
+RECIPES_PATH="esmvaltool/recipes"
+"""
         
         pbs_script = f"""#!/bin/bash -l 
 #PBS -S /bin/bash
@@ -118,24 +86,26 @@ if [ ! -f "$ESMVAL_USER_CONFIG" ]; then
   export ESMVAL_USER_CONFIG={fallback_config}
 fi
 
-# Ensure we're using the correct ESMValTool version
-echo "Using ESMValTool version: {esmvaltool_version}"
-echo "Config file: $ESMVAL_USER_CONFIG"
+echo "=== ESMValTool Recipe Execution ==="
+echo "Recipe: {recipe_name}"
+echo "Version: {esmvaltool_version}"
 echo "Resource group: {config['group']}"
 echo "Job started at: $(date)"
+echo "Config file: $ESMVAL_USER_CONFIG"
+{git_clone_section}
 
-# Check if recipe exists for this version
-recipe_file="{esmval_path}/{recipes_path}/{recipe_name}.yml"
+# Check if recipe exists
+recipe_file="$ESMVAL_PATH/$RECIPES_PATH/{recipe_name}.yml"
 if [ ! -f "$recipe_file" ]; then
   # Try examples directory
-  recipe_file="{esmval_path}/{recipes_path}/examples/{recipe_name}.yml"
+  recipe_file="$ESMVAL_PATH/$RECIPES_PATH/examples/{recipe_name}.yml"
 fi
 
 if [ ! -f "$recipe_file" ]; then
-  echo "ERROR: Recipe {recipe_name}.yml not found for ESMValTool {esmvaltool_version}"
+  echo "ERROR: Recipe {recipe_name}.yml not found"
   echo "Searched in:"
-  echo "  {esmval_path}/{recipes_path}/{recipe_name}.yml"
-  echo "  {esmval_path}/{recipes_path}/examples/{recipe_name}.yml"
+  echo "  $ESMVAL_PATH/$RECIPES_PATH/{recipe_name}.yml"
+  echo "  $ESMVAL_PATH/$RECIPES_PATH/examples/{recipe_name}.yml"
   exit 1
 fi
 
@@ -148,78 +118,165 @@ echo "Job completed at: $(date)"
 """
         return pbs_script
 
-    def find_recipe_file(self, recipe_name: str) -> Optional[str]:
-        """Find recipe file in custom directory or default locations."""
+    def generate_cosima_pbs_script(self, recipe_name: str, config: Dict,
+                                  repository_url: str = None) -> str:
+        """Generate PBS script for COSIMA recipe execution on Gadi."""
         
-        # Add .yml extension if not present
-        if not recipe_name.endswith('.yml'):
-            recipe_name += '.yml'
-        
-        # Search in custom recipe directory first
-        if self.custom_recipe_dir:
-            potential_files = [
-                self.custom_recipe_dir / recipe_name,
-                self.custom_recipe_dir / 'examples' / recipe_name,
-                self.custom_recipe_dir / 'testing' / recipe_name,
-            ]
-            
-            for recipe_file in potential_files:
-                if recipe_file.exists():
-                    print(f"✅ Found recipe: {recipe_file}")
-                    return str(recipe_file)
-        
-        # If no custom directory or file not found, return None
-        print(f"❌ Recipe {recipe_name} not found in available directories")
-        return None
-    
-    def run_local(self, recipe_name: str, config_json: str, esmvaltool_version: str, 
-                  conda_module: str, mode: str = 'dry-run') -> tuple[str, str]:
-        """Run recipe locally (for CI environments)."""
-        print(f"🔄 Running recipe '{recipe_name}' locally in {mode} mode")
-        
-        # Find the recipe file
-        recipe_file = self.find_recipe_file(recipe_name)
-        if not recipe_file:
-            return ('error', '')
-        
-        print(f"📄 Using recipe file: {recipe_file}")
-        
-        if mode == 'dry-run':
-            print("🧪 Dry-run mode: Would execute ESMValTool with:")
-            print(f"   Recipe: {recipe_file}")
-            print(f"   Version: {esmvaltool_version}")
-            print(f"   Config: {config_json}")
-            return ('success', '')
-        else:
-            print("⚠️  Local execution mode not fully implemented for CI")
-            print("   This would require full ESMValTool installation")
-            return ('skipped', '')
+        # COSIMA recipes use a different setup
+        git_clone_section = f"""
+# Clone COSIMA repository if needed
+cd $SCRIPTS_DIR/../
+if [ ! -d "COSIMA-recipes-ci" ]; then
+    git clone {repository_url or 'https://github.com/COSIMA/cosima-recipes'} COSIMA-recipes-ci
+else
+    cd COSIMA-recipes-ci
+    git pull origin main
+    cd ..
+fi
 
-    def generate_pbs_only(self, recipe_name: str, config_json: str, esmvaltool_version: str, 
-                         conda_module: str) -> tuple[str, str]:
-        """Generate PBS script for use with appleboy/ssh-action."""
-        print(f"📝 Generating PBS script for recipe '{recipe_name}'")
+# Set paths for COSIMA recipes
+COSIMA_PATH="$SCRIPTS_DIR/../COSIMA-recipes-ci"
+"""
+        
+        pbs_script = f"""#!/bin/bash -l 
+#PBS -S /bin/bash
+#PBS -P w40
+#PBS -l storage=gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/v45+gdata/hh5
+#PBS -N {recipe_name}-cosima
+#PBS -W block=true
+#PBS -W umask=037
+#PBS -l wd
+#PBS -o /g/data/kj13/admin/COSIMA/logs/{recipe_name}.out
+#PBS -e /g/data/kj13/admin/COSIMA/logs/{recipe_name}.err
+#PBS -q {config['queue']}
+#PBS -l walltime={config['walltime']}
+#PBS -l mem={config['memory']}
+
+module purge 
+module load pbs 
+
+# Load COSIMA environment
+module use /g/data/hh5/public/modules
+module load conda/analysis3
+
+echo "=== COSIMA Recipe Execution ==="
+echo "Recipe: {recipe_name}"
+echo "Resource group: {config['group']}"
+echo "Job started at: $(date)"
+{git_clone_section}
+
+# Check if recipe exists
+recipe_file="$COSIMA_PATH/{recipe_name}"
+if [ ! -f "$recipe_file" ]; then
+  # Try with .py extension
+  recipe_file="$COSIMA_PATH/{recipe_name}.py"
+fi
+
+if [ ! -f "$recipe_file" ]; then
+  # Try in notebooks directory
+  recipe_file="$COSIMA_PATH/notebooks/{recipe_name}"
+fi
+
+if [ ! -f "$recipe_file" ]; then
+  echo "ERROR: Recipe {recipe_name} not found"
+  echo "Searched in:"
+  echo "  $COSIMA_PATH/{recipe_name}"
+  echo "  $COSIMA_PATH/{recipe_name}.py"
+  echo "  $COSIMA_PATH/notebooks/{recipe_name}"
+  exit 1
+fi
+
+echo "Running recipe: $recipe_file"
+
+# Execute COSIMA recipe (could be Python script or Jupyter notebook)
+if [[ "$recipe_file" == *.py ]]; then
+    python "$recipe_file"
+elif [[ "$recipe_file" == *.ipynb ]]; then
+    jupyter nbconvert --to notebook --execute "$recipe_file"
+else
+    echo "ERROR: Unsupported recipe format"
+    exit 1
+fi
+
+echo "Job completed at: $(date)"
+"""
+        return pbs_script
+
+    def generate_pbs_script(self, recipe_name: str, config: Dict, 
+                           recipe_type: str = 'esmvaltool', 
+                           esmvaltool_version: str = 'main', 
+                           conda_module: str = 'conda/access-med',
+                           repository_url: str = None) -> str:
+        """Generate PBS script based on recipe type."""
+        
+        if recipe_type.lower() == 'cosima':
+            return self.generate_cosima_pbs_script(recipe_name, config, repository_url)
+        else:
+            # Default to ESMValTool
+            return self.generate_esmvaltool_pbs_script(recipe_name, config, esmvaltool_version, 
+                                                      conda_module, repository_url)
+
+    def run(self, recipe_name: str, config_json: str = '{}', 
+            recipe_type: str = 'esmvaltool',
+            esmvaltool_version: str = 'main', 
+            conda_module: str = 'conda/access-med',
+            repository_url: str = None) -> tuple[str, str]:
+        """
+        Generate PBS script for HPC execution via ssh-action.
+        
+        Args:
+            recipe_name: Name of the recipe to run
+            config_json: JSON configuration string
+            recipe_type: Type of recipe ('esmvaltool' or 'cosima')
+            esmvaltool_version: ESMValTool version (for esmvaltool recipes)
+            conda_module: Conda module to load
+            repository_url: Repository URL to clone (optional)
+            
+        Returns:
+            (status, pbs_filename)
+        """
+        print(f"🎯 Generating {recipe_type.upper()} PBS script for recipe '{recipe_name}'")
         
         # Parse configuration
         config = json.loads(config_json) if config_json else {}
         
-        # Set defaults if not provided
-        default_config = {
-            'queue': 'normal',
-            'memory': '4gb', 
-            'walltime': '02:00:00',
-            'group': 'medium'
-        }
+        # Set defaults based on recipe type
+        if recipe_type.lower() == 'cosima':
+            default_config = {
+                'queue': 'normal',
+                'memory': '8gb', 
+                'walltime': '04:00:00',
+                'group': 'large'
+            }
+        else:
+            # ESMValTool defaults
+            default_config = {
+                'queue': 'normal',
+                'memory': '4gb', 
+                'walltime': '02:00:00',
+                'group': 'medium'
+            }
+        
         config = {**default_config, **config}
         
         print(f"📋 Using configuration:")
+        print(f"  Recipe Type: {recipe_type}")
         print(f"  Queue: {config['queue']}")
         print(f"  Memory: {config['memory']}")
         print(f"  Walltime: {config['walltime']}")
         print(f"  Group: {config['group']}")
+        if repository_url:
+            print(f"  Repository: {repository_url}")
         
         # Generate PBS script
-        pbs_script = self.generate_pbs_script(recipe_name, config, esmvaltool_version, conda_module)
+        pbs_script = self.generate_pbs_script(
+            recipe_name=recipe_name, 
+            config=config, 
+            recipe_type=recipe_type,
+            esmvaltool_version=esmvaltool_version,
+            conda_module=conda_module,
+            repository_url=repository_url
+        )
         
         # Save PBS script for ssh-action to use
         pbs_filename = f"launch_{recipe_name}.pbs"
@@ -227,56 +284,41 @@ echo "Job completed at: $(date)"
             f.write(pbs_script)
         
         print(f"✅ PBS script saved to: {pbs_filename}")
-        print("🔄 This script can now be uploaded and submitted via ssh-action")
+        print("� Ready for upload and submission via ssh-action")
         
         return ('pbs-generated', pbs_filename)
-
-    def run(self, recipe_name: str, config_json: str, esmvaltool_version: str, 
-            conda_module: str, mode: str) -> tuple[str, str]:
-        """
-        Main execution logic - simplified for SSH action approach.
-        
-        Returns:
-            (status, job_id)
-        """
-        
-        if mode == 'generate-pbs-only':
-            # Generate PBS script for SSH action to use
-            return self.generate_pbs_only(recipe_name, config_json, esmvaltool_version, conda_module)
-        else:
-            # Run locally (dry-run, local testing, etc.)
-            return self.run_local(recipe_name, config_json, esmvaltool_version, conda_module, mode)
     
 
 def main():
-    parser = argparse.ArgumentParser(description='Smart Recipe Runner')
+    parser = argparse.ArgumentParser(description='Smart Recipe Runner - HPC PBS Generator')
     parser.add_argument('--recipe', required=True, help='Recipe name')
-    parser.add_argument('--config', required=True, help='Recipe config as JSON')
+    parser.add_argument('--config', default='{}', help='Recipe config as JSON')
+    parser.add_argument('--recipe-type', default='esmvaltool', 
+                       choices=['esmvaltool', 'cosima'], 
+                       help='Type of recipe to run')
     parser.add_argument('--esmvaltool-version', default='main', help='ESMValTool version')
     parser.add_argument('--conda-module', default='conda/access-med', help='Conda module')
-    parser.add_argument('--mode', default='run-only', help='Execution mode')
+    parser.add_argument('--repository-url', help='Repository URL to clone')
     
     args = parser.parse_args()
     
     try:
         runner = SmartRecipeRunner()
-        status, job_id = runner.run(
+        status, pbs_file = runner.run(
             recipe_name=args.recipe,
             config_json=args.config,
+            recipe_type=args.recipe_type,
             esmvaltool_version=args.esmvaltool_version,
             conda_module=args.conda_module,
-            mode=args.mode
+            repository_url=args.repository_url
         )
         
-        print(f"Recipe execution completed with status: {status}")
-        if job_id:
-            print(f"Job ID: {job_id}")
+        print(f"✅ PBS generation completed with status: {status}")
+        print(f"📄 PBS file: {pbs_file}")
+        print("🚀 Ready for HPC execution via ssh-action")
             
     except Exception as e:
-        print(f"Error in recipe execution: {e}")
-        with open(os.environ.get('GITHUB_OUTPUT', '/dev/stdout'), 'a') as f:
-            f.write(f"status=error\n")
-            f.write(f"job_submitted=false\n")
+        print(f"❌ Error in PBS generation: {e}")
         sys.exit(1)
 
 
