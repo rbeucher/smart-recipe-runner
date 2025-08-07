@@ -219,8 +219,12 @@ runs:
         # Determine execution mode
         if [[ "${{ inputs.dry_run }}" == "true" ]]; then
           mode="dry-run"
+        elif [[ -n "$GADI_USER" ]]; then
+          echo "🔄 Using appleboy/ssh-action method - generating PBS script"
+          mode="generate-pbs-only"
         else
-          mode="run"
+          echo "🔄 Running locally (no HPC credentials found)"
+          mode="local"
         fi
         
         # Create recipe runner script
@@ -246,6 +250,7 @@ runs:
                 print(f"📁 Found ESMValTool recipes at: {recipe_dir}")
                 break
         
+        # Always use local mode - SSH actions handle HPC execution
         runner = SmartRecipeRunner(
             hpc_system='local',
             log_dir='./logs',
@@ -288,6 +293,53 @@ runs:
           "${{ inputs.esmvaltool_version }}" \
           "${{ inputs.conda_module }}" \
           "$mode"
+          
+    - name: Upload PBS Script via SCP
+      if: (inputs.mode == 'recipe' || inputs.mode == 'both') && env.GADI_USER != ''
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: gadi.nci.org.au
+        username: ${{ env.GADI_USER }}
+        key: ${{ env.GADI_KEY }}
+        passphrase: ${{ env.GADI_KEY_PASSPHRASE }}
+        source: "launch_${{ inputs.recipe_name }}.pbs"
+        target: "${{ env.SCRIPTS_DIR }}/../ESMValTool/jobs/"
+        timeout: 60s
+        
+    - name: Submit PBS Job via SSH
+      if: (inputs.mode == 'recipe' || inputs.mode == 'both') && env.GADI_USER != ''
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: gadi.nci.org.au
+        username: ${{ env.GADI_USER }}
+        key: ${{ env.GADI_KEY }}
+        passphrase: ${{ env.GADI_KEY_PASSPHRASE }}
+        timeout: 2400m
+        script: |
+          # Set up variables
+          SCRIPTS_DIR="${{ env.SCRIPTS_DIR }}"
+          RECIPE_NAME="${{ inputs.recipe_name }}"
+          
+          # Navigate to jobs directory
+          cd $SCRIPTS_DIR/../ESMValTool/jobs
+          
+          # Backup existing script if it exists
+          if [ -f "launch_${RECIPE_NAME}.pbs" ]; then
+            cp "launch_${RECIPE_NAME}.pbs" "launch_${RECIPE_NAME}.pbs.backup.$(date +%Y%m%d_%H%M%S)"
+            echo "📁 Backed up existing PBS script"
+          fi
+          
+          echo "📋 Submitting PBS job for ${RECIPE_NAME}..."
+          if [ -f "launch_${RECIPE_NAME}.pbs" ]; then
+            JOB_ID=$(qsub launch_${RECIPE_NAME}.pbs)
+            echo "✅ Job submitted: $JOB_ID"
+            echo "job-id=$JOB_ID" >> $GITHUB_ENV
+          else
+            echo "❌ Error: PBS script launch_${RECIPE_NAME}.pbs not found"
+            echo "Available files:"
+            ls -la
+            exit 1
+          fi
         
     - name: Generate Combined Report
       shell: bash
