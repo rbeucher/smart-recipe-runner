@@ -268,30 +268,46 @@ GITHUB_TOKEN      # GitHub access token (usually automatic)
 
 #### SSH Key Configuration
 
-The Smart Recipe Runner supports both regular and password-protected SSH keys:
+The Smart Recipe Runner supports both regular and password-protected SSH keys, and can handle SSH keys provided as either file paths or content:
 
 **For regular SSH keys (no passphrase):**
 ```yaml
+# Option 1: SSH key content (typical in GitHub Actions)
 GADI_KEY: |
   -----BEGIN OPENSSH PRIVATE KEY-----
   <your private key content>
   -----END OPENSSH PRIVATE KEY-----
+
+# Option 2: SSH key file path (local development)
+GADI_KEY: /path/to/your/private/key
 ```
 
 **For password-protected SSH keys:**
 ```yaml
+# Option 1: SSH key content with passphrase (typical in GitHub Actions)
 GADI_KEY: |
   -----BEGIN OPENSSH PRIVATE KEY-----
   <your encrypted private key content>
   -----END OPENSSH PRIVATE KEY-----
 GADI_KEY_PASSPHRASE: your-key-passphrase
+
+# Option 2: SSH key file path with passphrase (local development)
+GADI_KEY: /path/to/your/encrypted/key
+GADI_KEY_PASSPHRASE: your-key-passphrase
 ```
+
+**Automatic Key Handling:**
+
+The runner automatically detects whether `GADI_KEY` contains:
+- **SSH key content**: If it starts with `-----BEGIN`, a temporary file is created
+- **File path**: If it doesn't start with `-----BEGIN`, it's treated as a file path
 
 When `GADI_KEY_PASSPHRASE` is provided, the runner will:
 1. Start an SSH agent
-2. Add the key to the agent using the passphrase
-3. Use the agent for all SSH connections
-4. Clean up the agent when finished
+2. Create a temporary key file if needed (for key content)
+3. Add the key to the agent using the passphrase (multiple methods attempted)
+4. Use the agent for all SSH connections
+5. Clean up temporary files and agent when finished
 
 **Note:** For CI/CD environments, ensure your build system has `expect` or similar tools available for automated passphrase handling.
 
