@@ -72,53 +72,122 @@ class SmartRecipeRunner:
                     pid_line = line.replace('SSH_AGENT_PID=', '').replace('; export SSH_AGENT_PID;', '')
                     os.environ['SSH_AGENT_PID'] = pid_line
             
-            # Add the key to ssh-agent using expect or similar approach
-            add_key_script = f"""
+            print(f"🔧 SSH agent started with PID: {os.environ.get('SSH_AGENT_PID', 'unknown')}")
+            
+            # Method 1: Try using DISPLAY=:0 and SSH_ASKPASS approach
+            try:
+                # Create a temporary askpass script
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
+                    f.write(f"""#!/bin/bash
+echo '{self.gadi_key_passphrase}'
+""")
+                    askpass_script = f.name
+                
+                os.chmod(askpass_script, 0o755)
+                
+                # Set up environment for ssh-add
+                env = os.environ.copy()
+                env['SSH_ASKPASS'] = askpass_script
+                env['DISPLAY'] = ':0'  # Required for SSH_ASKPASS to work
+                env['SSH_ASKPASS_REQUIRE'] = 'force'  # Force use of SSH_ASKPASS
+                
+                result = subprocess.run(['ssh-add', self.gadi_key], 
+                                      capture_output=True, text=True, timeout=30, env=env,
+                                      stdin=subprocess.DEVNULL)  # Ensure no stdin interaction
+                os.unlink(askpass_script)
+                
+                if result.returncode == 0:
+                    print("✅ Successfully added SSH key to agent (SSH_ASKPASS method)")
+                    return True
+                else:
+                    print(f"❌ Failed to add key with SSH_ASKPASS: {result.stderr}")
+                    
+            except Exception as e:
+                print(f"❌ Error with SSH_ASKPASS method: {e}")
+            
+            # Method 2: Try using sshpass (if available)
+            try:
+                # Check if sshpass is available
+                subprocess.run(['which', 'sshpass'], capture_output=True, check=True)
+                
+                result = subprocess.run(['sshpass', '-p', self.gadi_key_passphrase, 'ssh-add', self.gadi_key], 
+                                      capture_output=True, text=True, timeout=30)
+                
+                if result.returncode == 0:
+                    print("✅ Successfully added SSH key to agent (sshpass method)")
+                    return True
+                else:
+                    print(f"❌ Failed to add key with sshpass: {result.stderr}")
+                    
+            except subprocess.CalledProcessError:
+                print("🔧 sshpass not available, trying alternative methods")
+            except Exception as e:
+                print(f"❌ Error with sshpass method: {e}")
+            
+            # Method 3: Try using expect (if available)
+            try:
+                # Check if expect is available
+                subprocess.run(['which', 'expect'], capture_output=True, check=True)
+                
+                add_key_script = f"""
 expect << 'EOF'
+set timeout 30
 spawn ssh-add {self.gadi_key}
-expect "Enter passphrase"
-send "{self.gadi_key_passphrase}\\r"
-expect eof
+expect {{
+    "Enter passphrase" {{
+        send "{self.gadi_key_passphrase}\\r"
+        exp_continue
+    }}
+    "Identity added" {{
+        exit 0
+    }}
+    timeout {{
+        exit 1
+    }}
+    eof
+}}
 EOF
 """
-            
-            # Try to add key with expect (if available)
-            try:
+                
                 result = subprocess.run(['bash', '-c', add_key_script], 
-                                      capture_output=True, text=True, timeout=30)
+                                      capture_output=True, text=True, timeout=60)
                 if result.returncode == 0:
-                    print("✅ Successfully added SSH key to agent")
+                    print("✅ Successfully added SSH key to agent (expect method)")
                     return True
                 else:
                     print(f"❌ Failed to add key with expect: {result.stderr}")
-            except subprocess.TimeoutExpired:
-                print("❌ Timeout adding key to ssh-agent")
-            except FileNotFoundError:
-                print("❌ 'expect' command not found")
+                    
+            except subprocess.CalledProcessError:
+                print("🔧 expect not available, trying final fallback")
+            except Exception as e:
+                print(f"❌ Error with expect method: {e}")
             
-            # Fallback: try ssh-add with environment variable approach
+            # Method 4: Python-based approach using pexpect (if available)
             try:
-                # Create a temporary script to handle the passphrase
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
-                    f.write(f"""#!/bin/bash
-export SSH_ASKPASS_REQUIRE=never
-echo '{self.gadi_key_passphrase}' | ssh-add {self.gadi_key}
-""")
-                    temp_script = f.name
+                import pexpect
                 
-                os.chmod(temp_script, 0o755)
-                result = subprocess.run(['bash', temp_script], 
-                                      capture_output=True, text=True, timeout=30)
-                os.unlink(temp_script)
+                child = pexpect.spawn(f'ssh-add {self.gadi_key}')
+                child.expect('Enter passphrase.*:')
+                child.sendline(self.gadi_key_passphrase)
+                child.expect(pexpect.EOF, timeout=30)
+                child.close()
                 
-                if result.returncode == 0:
-                    print("✅ Successfully added SSH key to agent (fallback method)")
+                if child.exitstatus == 0:
+                    print("✅ Successfully added SSH key to agent (pexpect method)")
                     return True
                 else:
-                    print(f"❌ Failed to add key (fallback): {result.stderr}")
+                    print(f"❌ Failed to add key with pexpect: exit status {child.exitstatus}")
                     
+            except ImportError:
+                print("🔧 pexpect not available")
             except Exception as e:
-                print(f"❌ Error with fallback ssh-add: {e}")
+                print(f"❌ Error with pexpect method: {e}")
+            
+            # If all methods fail, provide guidance
+            print("❌ All SSH agent methods failed. Consider:")
+            print("   1. Using a passphrase-free SSH key for CI/CD")
+            print("   2. Installing 'expect' or 'sshpass' in your CI environment")
+            print("   3. Using GitHub's built-in SSH key support")
             
             return False
             

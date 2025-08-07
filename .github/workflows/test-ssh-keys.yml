@@ -1,0 +1,89 @@
+name: 'Test Password-Protected SSH Key Support'
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Test mode'
+        required: false
+        default: 'dry-run'
+        type: choice
+        options:
+          - dry-run
+          - test-ssh-only
+
+jobs:
+  test_password_protected_ssh:
+    runs-on: ubuntu-latest
+    name: Test SSH Key Handling
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Test without passphrase (existing functionality)
+      id: test-no-passphrase
+      uses: ./
+      with:
+        recipe: recipe_example
+        mode: ${{ inputs.test_mode }}
+        config: |
+          {
+            "queue": "normal",
+            "memory": "2gb",
+            "walltime": "01:00:00",
+            "group": "small"
+          }
+      env:
+        GADI_USER: ${{ secrets.GADI_USER }}
+        GADI_KEY: ${{ secrets.GADI_KEY }}
+        SCRIPTS_DIR: ${{ secrets.GADI_SCRIPTS_DIR }}
+      continue-on-error: true
+        
+    - name: Test with passphrase (new functionality)
+      id: test-with-passphrase
+      uses: ./
+      with:
+        recipe: recipe_example
+        mode: ${{ inputs.test_mode }}
+        config: |
+          {
+            "queue": "normal", 
+            "memory": "2gb",
+            "walltime": "01:00:00",
+            "group": "small"
+          }
+      env:
+        GADI_USER: ${{ secrets.GADI_USER }}
+        GADI_KEY: ${{ secrets.GADI_KEY }}
+        GADI_KEY_PASSPHRASE: ${{ secrets.GADI_KEY_PASSPHRASE }}
+        SCRIPTS_DIR: ${{ secrets.GADI_SCRIPTS_DIR }}
+      continue-on-error: true
+        
+    - name: Test results summary
+      run: |
+        echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Test without passphrase:" >> $GITHUB_STEP_SUMMARY
+        echo "- Status: ${{ steps.test-no-passphrase.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Outcome: ${{ steps.test-no-passphrase.outcome }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Test with passphrase:" >> $GITHUB_STEP_SUMMARY  
+        echo "- Status: ${{ steps.test-with-passphrase.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Outcome: ${{ steps.test-with-passphrase.outcome }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Expected Behavior:" >> $GITHUB_STEP_SUMMARY
+        echo "- Both tests should handle SSH keys appropriately" >> $GITHUB_STEP_SUMMARY
+        echo "- Password-protected keys should use SSH agent" >> $GITHUB_STEP_SUMMARY
+        echo "- Regular keys should work as before" >> $GITHUB_STEP_SUMMARY
+        echo "- Failed SSH agent setup should fall back to local mode" >> $GITHUB_STEP_SUMMARY
+        
+    - name: Check for SSH agent messages
+      run: |
+        echo "## SSH Agent Debug Information" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Check the job logs for these messages:" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔐 Detected password-protected SSH key" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔧 SSH agent started with PID: <number>" >> $GITHUB_STEP_SUMMARY  
+        echo "- ✅ Successfully added SSH key to agent (<method>)" >> $GITHUB_STEP_SUMMARY
+        echo "- ⚠️ Warning: Could not setup SSH agent, falling back to local mode" >> $GITHUB_STEP_SUMMARY
