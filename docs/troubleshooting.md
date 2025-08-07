@@ -86,9 +86,21 @@ cat ~/.ssh/gadi_ci_key.pub >> ~/.ssh/authorized_keys
 **Debugging Password-Protected Keys:**
 Check the workflow logs for these messages:
 - `🔐 Detected password-protected SSH key` - Key passphrase detected
-- `✅ Successfully added SSH key to agent` - SSH agent setup successful
+- `🔧 SSH agent started with PID: <number>` - SSH agent initialization successful
+- `✅ Successfully added SSH key to agent (<method>)` - SSH agent setup successful with specific method
 - `❌ Failed to add key` - SSH agent setup failed
 - `⚠️ Warning: Could not setup SSH agent, falling back to local mode` - Fallback to local execution
+
+**Common SSH Agent Script Errors:**
+
+1. **"here-document at line X delimited by end-of-file"**
+   - This was a bug in earlier versions with malformed expect scripts
+   - **Solution**: Update to the latest version of the action
+   - **Fixed in**: v1.1+ (expect script syntax corrected)
+
+2. **"syntax error: unexpected end of file"**
+   - Related to the above heredoc issue
+   - **Solution**: Same as above - update action version
 
 #### Debugging SSH Issues
 ```yaml

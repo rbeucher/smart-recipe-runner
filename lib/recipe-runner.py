@@ -129,25 +129,25 @@ echo '{self.gadi_key_passphrase}'
                 # Check if expect is available
                 subprocess.run(['which', 'expect'], capture_output=True, check=True)
                 
-                add_key_script = f"""
-expect << 'EOF'
+                add_key_script = f"""expect << 'EOF'
 set timeout 30
 spawn ssh-add {self.gadi_key}
 expect {{
-    "Enter passphrase" {{
+    "Enter passphrase*" {{
         send "{self.gadi_key_passphrase}\\r"
         exp_continue
     }}
-    "Identity added" {{
+    "Identity added*" {{
         exit 0
     }}
     timeout {{
         exit 1
     }}
-    eof
+    eof {{
+        exit 0
+    }}
 }}
-EOF
-"""
+EOF"""
                 
                 result = subprocess.run(['bash', '-c', add_key_script], 
                                       capture_output=True, text=True, timeout=60)
