@@ -7,6 +7,14 @@ on:
         description: 'Recipe name to run'
         required: true
         default: 'recipe_example'
+      recipe_type:
+        description: 'Recipe type'
+        required: false
+        type: choice
+        options:
+          - esmvaltool
+          - cosima
+        default: 'esmvaltool'
       esmvaltool_version:
         description: 'ESMValTool version'
         required: false
@@ -20,8 +28,8 @@ on:
 env:
   GADI_USER: ${{ secrets.GADI_USER }}
   GADI_KEY: ${{ secrets.GADI_KEY }}
+  GADI_KEY_PASSPHRASE: ${{ secrets.GADI_KEY_PASSPHRASE }}
   SCRIPTS_DIR: ${{ secrets.GADI_SCRIPTS_DIR }}
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   run-recipe:
@@ -31,7 +39,9 @@ jobs:
         uses: actions/checkout@v4
       
       - name: Run Recipe with Smart Recipe Runner
-        uses: ACCESS-NRI/smart-recipe-runner@v1
+        uses: rbeucher/smart-recipe-runner@main
         with:
-          recipe: ${{ github.event.inputs.recipe }}
+          mode: recipe
+          recipe_name: ${{ github.event.inputs.recipe }}
+          recipe_type: ${{ github.event.inputs.recipe_type }}
           esmvaltool_version: ${{ github.event.inputs.esmvaltool_version }}

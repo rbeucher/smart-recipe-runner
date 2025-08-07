@@ -559,8 +559,8 @@ if __name__ == "__main__":
     with open(args.matrix, 'r') as f:
         matrix = json.load(f)
     
-    # Create runner and execute tests (using local mode)
-    runner = NotebookRunner(args.config, hpc_system='local')
+    # Create runner and execute tests
+    runner = NotebookRunner(args.config)
     results = runner.run_notebook_tests(
         matrix, 
         mode=args.mode,

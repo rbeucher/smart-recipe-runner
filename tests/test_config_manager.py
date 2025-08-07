@@ -20,13 +20,11 @@ def test_config_manager_initialization(tmp_path):
     
     manager = config_manager_module.SmartConfigManager(
         recipe_dir=str(recipe_dir),
-        config_path=str(config_path),
-        hpc_system='gadi'
+        config_path=str(config_path)
     )
     
     assert manager.recipe_dir == recipe_dir
     assert manager.config_path == config_path
-    assert manager.hpc_system == 'gadi'
 
 
 def test_analyze_recipe_complexity(config_manager, tmp_path, sample_recipe_content):

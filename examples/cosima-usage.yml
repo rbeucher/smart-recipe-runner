@@ -1,36 +1,20 @@
-name: Advanced Recipe Execution with Custom Configuration
+name: COSIMA Recipe Execution
 
 on:
   workflow_dispatch:
     inputs:
       recipe:
-        description: 'Recipe name to run'
+        description: 'COSIMA recipe name to run'
         required: true
-        default: 'recipe_climwip_test_basic'
-      recipe_type:
-        description: 'Recipe type'
+        default: 'example_analysis'
+      repository_url:
+        description: 'COSIMA repository URL'
         required: false
-        type: choice
-        options:
-          - esmvaltool
-          - cosima
-        default: 'esmvaltool'
-      esmvaltool_version:
-        description: 'ESMValTool version'
-        required: false
-        type: choice
-        options:
-          - main
-          - v2.13.0
-          - v2.12.0
-        default: 'main'
+        default: 'https://github.com/COSIMA/cosima-recipes'
       custom_config:
         description: 'Custom resource configuration (JSON)'
         required: false
-        default: '{"queue":"normal","memory":"8gb","walltime":"04:00:00"}'
-      repository_url:
-        description: 'Custom repository URL (optional)'
-        required: false
+        default: '{"queue":"normal","memory":"16gb","walltime":"03:00:00"}'
 
 env:
   GADI_USER: ${{ secrets.GADI_USER }}
@@ -39,28 +23,27 @@ env:
   SCRIPTS_DIR: ${{ secrets.GADI_SCRIPTS_DIR }}
 
 jobs:
-  run-recipe:
+  run-cosima-recipe:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       
-      - name: Advanced Recipe Execution
+      - name: Run COSIMA Recipe
         id: run
         uses: rbeucher/smart-recipe-runner@main
         with:
           mode: recipe
           recipe_name: ${{ github.event.inputs.recipe }}
-          recipe_type: ${{ github.event.inputs.recipe_type }}
-          esmvaltool_version: ${{ github.event.inputs.esmvaltool_version }}
+          recipe_type: cosima
           esmvaltool_repository: ${{ github.event.inputs.repository_url }}
           config: ${{ github.event.inputs.custom_config }}
       
       - name: Display Results
         run: |
-          echo "🎯 Recipe Execution Completed"
+          echo "🎯 COSIMA Recipe Execution Completed"
           echo "Recipe: ${{ github.event.inputs.recipe }}"
-          echo "Type: ${{ github.event.inputs.recipe_type }}"
+          echo "Repository: ${{ github.event.inputs.repository_url }}"
           echo "Status: ${{ steps.run.outputs.status }}"
           echo "Resource Group: ${{ steps.run.outputs.resource_group }}"
           if [ "${{ steps.run.outputs.job_id }}" != "" ]; then

@@ -1,26 +1,27 @@
-# Smart Recipe Runner
+# Smart Recipe Runner Architecture
 
-A unified GitHub Action for ESMValTool recipe management that intelligently handles configuration, deployment, and execution on HPC systems.
+A streamlined GitHub Action for ESMValTool and COSIMA recipe execution that generates optimized PBS scripts for HPC systems.
 
 ## Architecture Overview
 
-The Smart Recipe Runner is designed with a modular architecture that separates concerns while providing a seamless user experience:
+The Smart Recipe Runner follows a simple, focused architecture with two core components:
 
 ```
 smart-recipe-runner/
 ├── action.yml                    # Main action definition
 ├── lib/
-│   ├── config-manager.py         # Configuration management and analysis
-│   ├── recipe-runner.py          # HPC execution logic
+│   ├── config-manager.py         # Configuration analysis and management
+│   ├── recipe-runner.py          # PBS script generation
 │   └── requirements.txt          # Python dependencies
 ├── docs/
 │   ├── architecture.md           # This file
 │   ├── configuration.md          # Configuration guide
-│   └── troubleshooting.md        # Common issues and solutions
+│   └── troubleshooting.md        # Troubleshooting guide
 └── examples/
     ├── basic-usage.yml           # Simple workflow example
     ├── advanced-usage.yml        # Complex workflow example
-    └── testing.yml               # Testing and validation
+    ├── cosima-usage.yml          # COSIMA workflow example
+    └── matrix-testing.yml        # Matrix testing example
 ```
 
 ## Core Components
@@ -28,20 +29,20 @@ smart-recipe-runner/
 ### 1. Action Definition (`action.yml`)
 
 The main GitHub Action definition that:
-- Defines all input parameters with sensible defaults
+- Defines input parameters with sensible defaults
 - Sets up the execution environment
-- Orchestrates the configuration and execution flow
-- Provides comprehensive outputs for workflow integration
+- Orchestrates the PBS script generation flow
+- Provides structured outputs for workflow integration
 
 Key features:
-- **Input validation**: Ensures all required parameters are provided
-- **Mode switching**: Supports different execution modes (run-only, setup-and-run, etc.)
+- **Input validation**: Ensures required parameters are provided
+- **Recipe type switching**: Supports ESMValTool and COSIMA recipes
 - **Error handling**: Comprehensive error reporting and logging
-- **Output generation**: Provides actionable outputs for downstream steps
+- **Clean outputs**: Provides PBS filename for ssh-action integration
 
 ### 2. Configuration Manager (`lib/config-manager.py`)
 
-Intelligent configuration management system that:
+Intelligent configuration analysis system that:
 - Analyzes recipe requirements automatically
 - Generates optimized resource configurations
 - Maintains configuration consistency across runs
@@ -49,103 +50,108 @@ Intelligent configuration management system that:
 
 #### Key Features:
 
-**Heuristic Analysis**: Automatically determines resource requirements by analyzing:
-- Recipe content and complexity
-- Data source requirements
-- Processing patterns
-- Historical performance data
+**Recipe Complexity Analysis**: Automatically determines resource requirements by analyzing:
+- Recipe file content and structure
+- Dataset requirements and complexity
+- Diagnostic patterns and computational load
+- Known resource patterns from community recipes
 
 **Resource Classification**: Groups recipes into categories:
-- `small`: Simple diagnostic recipes (2GB memory, 2 CPUs, 1 hour)
-- `medium`: Standard analysis recipes (8GB memory, 4 CPUs, 3 hours)
-- `large`: Complex climate analysis (16GB memory, 8 CPUs, 6 hours)
-- `extra-large`: Heavy computational workloads (32GB memory, 16 CPUs, 12 hours)
+- `light`: Simple diagnostic recipes (copyq, 16GB memory, 1 hour)
+- `medium`: Standard analysis recipes (normal queue, 32GB memory, 2 hours)
+- `heavy`: Complex climate analysis (normal queue, 64GB memory, 4 hours)
+- `megamem`: Memory-intensive workloads (megamem queue, 256GB memory, 8 hours)
 
-**Self-Healing Configuration**: 
-- Detects configuration drift
-- Auto-regenerates configurations when needed
-- Maintains backward compatibility
-- Provides change detection and reporting
+**Smart Configuration Management**: 
+- Detects when configuration needs updating
+- Auto-regenerates configurations when recipe changes are detected
+- Maintains configuration consistency across runs
+- Provides fallback configurations for unknown recipes
 
 ### 3. Recipe Runner (`lib/recipe-runner.py`)
 
-HPC execution engine that:
-- Handles SSH connections to compute systems
-- Generates optimized PBS scripts
-- Manages job submission and monitoring
-- Provides comprehensive logging and error reporting
+PBS script generation engine that:
+- Creates HPC-optimized job scripts for different recipe types
+- Handles environment setup and dependency management
+- Supports both ESMValTool and COSIMA workflows
+- Provides structured outputs for ssh-action integration
 
-#### Execution Flow:
+#### Key Features:
 
-1. **Connection Setup**: Establishes secure SSH connection to HPC system
-2. **Environment Preparation**: Sets up ESMValTool environment and dependencies
-3. **Script Generation**: Creates optimized PBS job scripts based on resource requirements
-4. **Job Submission**: Submits jobs to the queue system with proper resource allocation
-5. **Monitoring**: Tracks job status and provides real-time feedback
-6. **Result Collection**: Gathers outputs and artifacts for downstream processing
+**Multi-Platform Support**:
+- **ESMValTool recipes**: Complete environment setup with conda and ESMValTool installation
+- **COSIMA recipes**: Ocean analysis workflows with Jupyter notebook execution
+- **Custom repositories**: Support for user-defined recipe repositories
 
-## Execution Modes
+**PBS Script Optimization**:
+- Resource allocation based on recipe complexity analysis
+- Environment setup with proper conda module loading
+- Repository cloning and dependency management
+- Structured logging and output management
 
-### 1. Run-Only Mode (`run-only`)
-- Assumes configuration already exists
-- Focuses purely on recipe execution
-- Fastest execution for established workflows
-- **Use case**: Production runs with stable configurations
+**Clean Integration**:
+- Generates PBS scripts as files for ssh-action to upload and submit
+- No complex SSH handling within the action itself
+- Simple status reporting for workflow integration
 
-### 2. Setup-and-Run Mode (`setup-and-run`)
-- Comprehensive mode that handles everything
-- Analyzes recipe and generates configuration
-- Executes the recipe with optimized settings
-- **Use case**: New recipes or when configuration needs updating
+## Execution Flow
 
-### 3. Config-Check Mode (`config-check`)
-- Validates and analyzes existing configuration
-- Generates new configuration if needed
-- Provides detailed configuration reports
-- **Use case**: Configuration validation and optimization
+The simplified execution flow consists of three main phases:
 
-### 4. Dry-Run Mode (`dry-run`)
-- Simulates execution without actual job submission
-- Validates PBS script generation
-- Checks resource allocation and parameters
-- **Use case**: Testing and validation workflows
+### 1. Configuration Analysis
+- Load or generate configuration based on recipe analysis
+- Determine optimal resource allocation for the recipe
+- Apply any user-provided configuration overrides
 
-## Multiple Recipe Execution
+### 2. PBS Script Generation
+- Create optimized PBS script based on recipe type (ESMValTool/COSIMA)
+- Include proper resource allocation and environment setup
+- Handle repository cloning and dependency installation
+- Structure script for reliable execution on HPC systems
 
-### Matrix Strategy (Recommended)
-The Smart Recipe Runner supports GitHub's matrix strategy for parallel execution of multiple recipes:
+### 3. Output Delivery
+- Save PBS script to file system
+- Provide script filename as output for ssh-action integration
+- Report generation status and any configuration updates
+
+## Recipe Type Support
+
+### ESMValTool Recipes
+- **Environment**: Automated conda environment setup with specified ESMValTool version
+- **Repository**: Clones ESMValTool repository (main, latest, or specific versions)
+- **Configuration**: Uses provided config JSON or falls back to system defaults
+- **Execution**: Runs `esmvaltool run` with appropriate resource allocation
+
+### COSIMA Recipes  
+- **Environment**: Ocean analysis environment with Jupyter and scientific Python stack
+- **Repository**: Clones COSIMA recipes or user-specified repository
+- **Configuration**: Optimized for ocean modeling workflows
+- **Execution**: Notebook-based execution with COSIMA-specific resource allocation
+
+## Matrix Testing Support
+
+The configuration manager includes built-in support for matrix testing:
 
 ```yaml
-# Setup job generates execution matrix
-setup:
-  outputs:
-    matrix: ${{ steps.generate-matrix.outputs.matrix }}
-  steps:
-    - uses: ACCESS-NRI/smart-recipe-runner@v1
-      with:
-        recipe: all  # Triggers matrix generation
-        generate_matrix: true
-        recipe_filter: "recipe_.*"
-        resource_filter: "all"
+# Generate execution matrix for multiple recipes
+- name: Generate Matrix
+  id: matrix
+  uses: rbeucher/smart-recipe-runner@main
+  with:
+    recipe_name: 'all'  # Triggers matrix generation
+    recipe_filter: 'recipe_.*'
+    resource_filter: 'all'
+    max_parallel: 8
 
-# Execute job runs recipes in parallel
-execute:
+# Execute recipes in parallel using matrix
+- name: Execute Recipes
   strategy:
-    matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
-  steps:
-    - uses: ACCESS-NRI/smart-recipe-runner@v1
-      with:
-        recipe: ${{ matrix.recipe }}
-        mode: run-only
+    matrix: ${{ fromJson(steps.matrix.outputs.matrix) }}
+  uses: rbeucher/smart-recipe-runner@main
+  with:
+    recipe_type: 'esmvaltool'
+    recipe_name: ${{ matrix.recipe }}
 ```
-
-### Execution Strategies
-
-1. **Matrix Execution** (Parallel)
-   - Multiple recipes run simultaneously
-   - Individual failure handling
-   - Optimal resource utilization
-   - **Best for**: Production workflows with many recipes
 
 2. **Sequential Execution** (Serial)
    - Recipes run one after another
@@ -191,167 +197,161 @@ The configuration manager uses a multi-layered approach:
 
 1. **Recipe Analysis**: Examines recipe YAML for complexity indicators
 2. **Historical Data**: Leverages known recipe performance patterns
-3. **Heuristic Classification**: Applies rules-based categorization
-4. **Fallback Logic**: Provides safe defaults for unknown recipes
+## Integration with ssh-action
 
-### Resource Allocation Logic
+The Smart Recipe Runner is designed to work seamlessly with ssh-action for HPC job submission:
+
+### Workflow Integration Pattern
+
+```yaml
+jobs:
+  generate-pbs:
+    runs-on: ubuntu-latest
+    outputs:
+      pbs_filename: ${{ steps.generate.outputs.pbs_filename }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate PBS Script
+        id: generate
+        uses: rbeucher/smart-recipe-runner@main
+        with:
+          recipe_type: 'esmvaltool'
+          recipe_name: 'recipe_python.yml'
+          
+  submit-job:
+    needs: generate-pbs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Submit to HPC
+        uses: ACCESS-NRI/ssh-action@v1
+        with:
+          host: 'gadi.nci.org.au'
+          username: ${{ secrets.GADI_USERNAME }}
+          key: ${{ secrets.GADI_SSH_KEY }}
+          script: |
+            cd /scratch/$USER/scripts
+            qsub ${{ needs.generate-pbs.outputs.pbs_filename }}
+```
+
+### Resource Classification Logic
+
+The configuration manager uses a multi-factor analysis to classify recipes:
 
 ```python
-def classify_recipe_complexity(recipe_content):
-    # Multi-factor analysis
-    factors = {
-        'diagnostics': count_diagnostics(recipe_content),
-        'variables': count_variables(recipe_content),
-        'datasets': count_datasets(recipe_content),
-        'time_range': analyze_time_range(recipe_content)
-    }
+def analyze_recipe_complexity(recipe_path):
+    # Analyze recipe structure
+    complexity_score = 0
     
-    # Apply weighted scoring
-    complexity_score = calculate_complexity_score(factors)
-    
-    # Map to resource groups
-    return map_to_resource_group(complexity_score)
+    # Check datasets (more datasets = more complexity)
+    if len(datasets) > 10: complexity_score += 2
+    elif len(datasets) > 5: complexity_score += 1
+        
+    # Check diagnostics (more diagnostics = more processing)
+    if len(diagnostics) > 3: complexity_score += 2
+    elif len(diagnostics) > 1: complexity_score += 1
+        
+    # Check for memory-intensive keywords
+    memory_keywords = ['climwip', 'ipcc', 'cmip6', 'bias', 'multimodel']
+    for keyword in memory_keywords:
+        if keyword in content_lower: complexity_score += 1
+            
+    # Map score to resource group
+    if complexity_score >= 4: return 'heavy'
+    elif complexity_score >= 2: return 'medium'
+    else: return 'light'
 ```
 
-## Integration Patterns
+### PBS Script Templates
 
-### Workflow Integration
+**ESMValTool Template:**
+```bash
+#!/bin/bash
+#PBS -N {recipe_name}
+#PBS -l mem={memory}
+#PBS -l ncpus={ncpus}
+#PBS -l walltime={walltime}
+#PBS -q {queue}
+#PBS -P {project}
 
-The Smart Recipe Runner integrates seamlessly with GitHub workflows for both single and multiple recipe execution:
+module load {conda_module}
+cd $SCRIPTS_DIR
 
-**Single Recipe:**
-```yaml
-- name: Run Recipe Analysis
-  uses: ACCESS-NRI/smart-recipe-runner@v1
-  with:
-    recipe: ${{ matrix.recipe }}
-    mode: setup-and-run
-    esmvaltool_version: main
-  id: recipe-run
+# Clone ESMValTool repository
+git clone {repository_url} ESMValTool-ci
+cd ESMValTool-ci
+pip install -e .
 
-- name: Process Results
-  if: steps.recipe-run.outputs.status == 'success'
-  run: |
-    echo "Job ID: ${{ steps.recipe-run.outputs.job_id }}"
-    echo "Resource Group: ${{ steps.recipe-run.outputs.resource_group }}"
+# Execute recipe
+esmvaltool run {recipe_name} --config_file={config_file}
 ```
 
-**Multiple Recipes (Matrix Strategy):**
-```yaml
-# Setup matrix
-setup:
-  steps:
-    - uses: ACCESS-NRI/smart-recipe-runner@v1
-      id: matrix
-      with:
-        recipe: all
-        generate_matrix: true
-        recipe_filter: "recipe_.*"
+**COSIMA Template:**
+```bash
+#!/bin/bash
+#PBS -N cosima_{notebook_name}
+#PBS -l mem={memory}
+#PBS -l ncpus={ncpus}
+#PBS -l walltime={walltime}
+#PBS -q {queue}
+#PBS -P {project}
 
-# Execute in parallel
-execute:
-  needs: setup
-  strategy:
-    matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
-  steps:
-    - uses: ACCESS-NRI/smart-recipe-runner@v1
-      with:
-        recipe: ${{ matrix.recipe }}
-        mode: run-only
+module load {conda_module}
+cd $SCRIPTS_DIR
+
+# Clone COSIMA recipes
+git clone {repository_url} cosima-recipes
+cd cosima-recipes
+
+# Execute notebook
+jupyter nbconvert --to notebook --execute {notebook_name}.ipynb
 ```
 
-**Batch Processing:**
-```yaml
-- name: Execute Multiple Recipes
-  uses: ACCESS-NRI/smart-recipe-runner@v1
-  with:
-    recipe: all
-    mode: setup-and-run
-    recipe_filter: "climate_.*"
-    resource_filter: "large"
-```
+## Extension Points
 
-### Error Handling Strategy
+### Adding New Recipe Types
 
-Comprehensive error handling at multiple levels:
+To add support for a new recipe type:
 
-1. **Input Validation**: Pre-execution parameter validation
-2. **Configuration Errors**: Configuration generation and validation errors
-3. **Connection Errors**: SSH and network connectivity issues
-4. **Execution Errors**: HPC job submission and execution errors
-5. **Resource Errors**: Resource allocation and queue system errors
-
-## Performance Optimizations
-
-### Resource Efficiency
-
-- **Dynamic Allocation**: Resources allocated based on actual recipe requirements
-- **Queue Optimization**: Smart queue selection based on resource needs
-- **Parallel Processing**: Support for parallel execution patterns
-- **Memory Management**: Optimized memory allocation to prevent OOM errors
-
-### Execution Efficiency
-
-- **Connection Reuse**: SSH connection pooling for multiple operations
-- **Script Caching**: PBS script template caching and reuse
-- **Configuration Caching**: Intelligent configuration caching and invalidation
-- **Incremental Updates**: Only regenerate configuration when needed
-
-## Extensibility
-
-### Adding New Resource Groups
-
+1. **Add recipe type logic** in `recipe-runner.py`:
 ```python
-RESOURCE_GROUPS = {
-    'custom-group': {
-        'memory': '64gb',
-        'cpus': 32,
-        'walltime': '24:00:00',
-        'queue': 'hugemem'
-    }
-}
+def generate_pbs_script(self, recipe_name, config, recipe_type):
+    if recipe_type.lower() == 'new-type':
+        return self.generate_newtype_pbs_script(recipe_name, config)
+    # ... existing logic
 ```
 
-### Custom Classification Rules
-
+2. **Create type-specific PBS generator**:
 ```python
-def custom_recipe_classifier(recipe_path, recipe_content):
-    # Custom classification logic
-    if 'machine_learning' in recipe_content:
-        return 'ml-optimized'
-    return None  # Fall back to default classification
+def generate_newtype_pbs_script(self, recipe_name, config):
+    # Custom PBS script generation for new recipe type
+    return pbs_script_content
 ```
 
-## Security Considerations
+3. **Update action.yml** to include new recipe type in documentation
 
-### Credential Management
+### Custom Resource Classifications
 
-- **Secret Protection**: All credentials managed through GitHub secrets
-- **Connection Security**: SSH key-based authentication only
-- **Audit Logging**: Comprehensive logging of all access attempts
-- **Principle of Least Privilege**: Minimal required permissions
+Users can extend resource classifications by:
 
-### Data Protection
+1. Modifying the `known_heavy_recipes` and `known_megamem_recipes` sets
+2. Adding custom analysis logic in `analyze_recipe_complexity()`
+3. Defining new resource groups in the `default_resources` configuration
 
-- **Secure Transfer**: All data transfers use encrypted channels
-- **Temporary Files**: Automatic cleanup of temporary files and credentials
-- **Access Control**: Restricted access to sensitive configuration files
-- **Audit Trail**: Complete audit trail of all operations
+## Performance Considerations
 
-## Monitoring and Observability
+### Configuration Caching
+- Configuration hash-based change detection prevents unnecessary regeneration
+- File-based caching of recipe analysis results
+- Intelligent fallback to previous configurations when analysis fails
 
-### Logging Strategy
+### PBS Script Optimization
+- Template-based script generation for consistent formatting
+- Minimal resource allocation to reduce queue wait times
+- Optimized environment setup to reduce job startup time
 
-- **Structured Logging**: JSON-formatted logs for machine processing
-- **Multi-Level Logging**: Debug, info, warning, error levels
-- **Contextual Information**: Rich context in all log messages
-- **Performance Metrics**: Execution time and resource usage tracking
+### Error Recovery
+- Graceful fallback to default configurations when analysis fails
+- Comprehensive error reporting for debugging
+- Safe defaults that work for most recipes
 
-### Health Checks
-
-- **Configuration Health**: Automatic validation of configuration integrity
-- **System Health**: HPC system connectivity and resource availability checks
-- **Dependency Health**: ESMValTool and environment dependency validation
-- **Job Health**: Continuous monitoring of submitted jobs
-
-This architecture provides a robust, scalable, and maintainable solution for ESMValTool recipe management while abstracting away the complexity from end users.
+This simplified architecture focuses on the core functionality while maintaining flexibility for future extensions.

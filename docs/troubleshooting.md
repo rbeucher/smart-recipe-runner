@@ -4,99 +4,239 @@ This guide helps resolve common issues when using the Smart Recipe Runner.
 
 ## Quick Diagnostics
 
-### Health Check Commands
-
-Run these commands to quickly diagnose issues:
-
+### Test Configuration
 ```yaml
-# Test configuration generation
-- uses: ACCESS-NRI/smart-recipe-runner@v1
+# Test PBS script generation without errors
+- name: Test PBS Generation
+  uses: rbeucher/smart-recipe-runner@main
   with:
-    recipe: recipe_example
-    mode: config-check
+    recipe_type: 'esmvaltool'
+    recipe_name: 'recipe_python.yml'
+```
 
-# Test without execution
-- uses: ACCESS-NRI/smart-recipe-runner@v1
+### Debug Mode
+```yaml
+# Enable verbose logging for debugging
+- name: Debug Recipe Processing
+  uses: rbeucher/smart-recipe-runner@main
+  env:
+    DEBUG: true
   with:
-    recipe: recipe_example
-    mode: dry-run
-
-# Force regeneration
-- uses: ACCESS-NRI/smart-recipe-runner@v1
-  with:
-    recipe: recipe_example
-    force_config_regeneration: true
-    debug_mode: true
+    recipe_type: 'esmvaltool'
+    recipe_name: 'recipe_python.yml'
 ```
 
 ## Common Issues and Solutions
 
-### 1. SSH Connection Issues
+### 1. Recipe Not Found
 
 #### Symptoms
 ```
-Error: Failed to establish SSH connection
-Error: Permission denied (publickey)
-Error: Connection timed out
+Error: Recipe 'recipe_name.yml' not found
+Warning: Recipe directory not found
 ```
 
 #### Solutions
 
-**Check SSH Key Format**
+**Check Recipe Name**
+- Ensure the recipe name matches exactly (case-sensitive)
+- Include the `.yml` extension if part of the filename
+- Verify the recipe exists in the specified repository
+
+**Check Repository URL**
 ```yaml
-# Ensure your GADI_KEY secret includes the complete SSH private key
-GADI_KEY: |
-  <your complete SSH private key>
-  <including headers and footers>
-  <in standard OpenSSH format>
+# Specify custom repository if needed
+- uses: rbeucher/smart-recipe-runner@main
+  with:
+    recipe_type: 'esmvaltool'
+    recipe_name: 'my_recipe.yml'
+    repository_url: 'https://github.com/myorg/my-recipes'
 ```
 
-**Verify SSH Key Permissions**
+**Check ESMValTool Version**
+```yaml
+# Try different ESMValTool versions
+- uses: rbeucher/smart-recipe-runner@main
+  with:
+    recipe_type: 'esmvaltool'
+    recipe_name: 'recipe_python.yml'
+    esmvaltool_version: 'v2.12.0'  # Try specific version
+```
+
+### 2. Configuration Issues
+
+#### Symptoms
+```
+Error: Invalid JSON in config parameter
+Error: Could not parse configuration
+```
+
+#### Solutions
+
+**Check JSON Syntax**
+```yaml
+# Valid JSON configuration
+config: '{"rootpath": {"default": "/data"}}'
+
+# Multi-line JSON (use | operator)
+config: |
+  {
+    "rootpath": {
+      "CMIP6": "/g/data/ks32/CMIP6",
+      "OBS": "/g/data/ks32/obs"
+    },
+    "output_dir": "/scratch/xyz123/output"
+  }
+```
+
+**Validate JSON Online**
+- Use an online JSON validator before adding to workflow
+- Check for trailing commas, missing quotes, unescaped characters
+
+### 3. Resource Allocation Issues
+
+#### Symptoms
+```
+Warning: Using fallback configuration
+Error: PBS script generation failed
+```
+
+#### Solutions
+
+**Check Resource Requirements**
+The system automatically allocates resources, but you can verify:
+
+```yaml
+# For large recipes that might need more resources
+recipe_name: 'recipe_large_analysis.yml'  # Will automatically get 'heavy' classification
+
+# For simple recipes that should run quickly  
+recipe_name: 'recipe_simple_plot.yml'     # Will automatically get 'light' classification
+```
+
+**Known Resource Classifications**
+- Light: Simple diagnostics and plots
+- Medium: Standard analysis workflows  
+- Heavy: Complex climate analysis, multiple datasets
+- Megamem: Memory-intensive workloads (>200GB)
+
+### 4. PBS Script Issues
+
+#### Symptoms
+```
+Error: Failed to generate PBS script
+Error: Template rendering failed
+```
+
+#### Solutions
+
+**Check Recipe Type**
+```yaml
+# Ensure correct recipe type
+recipe_type: 'esmvaltool'  # For ESMValTool recipes
+recipe_type: 'cosima'      # For COSIMA ocean analysis
+```
+
+**Check Conda Module**
+```yaml
+# Try different conda modules if default doesn't work
+conda_module: 'conda/access-med'  # Default
+conda_module: 'conda/analysis3'   # Alternative
+```
+
+### 5. Integration with ssh-action
+
+#### Symptoms
+```
+Error: PBS file not found
+Error: Could not upload PBS script
+```
+
+#### Solutions
+
+**Check Output Usage**
+```yaml
+# Correct way to use outputs
+- name: Generate PBS
+  id: pbs
+  uses: rbeucher/smart-recipe-runner@main
+  with:
+    recipe_type: 'esmvaltool'
+    recipe_name: 'recipe_python.yml'
+
+- name: Submit Job
+  run: |
+    echo "Generated: ${{ steps.pbs.outputs.pbs_filename }}"
+    echo "Status: ${{ steps.pbs.outputs.status }}"
+```
+
+**Check File Artifacts**
+```yaml
+# Upload PBS script as artifact for debugging
+- name: Upload PBS Script
+  uses: actions/upload-artifact@v4
+  with:
+    name: pbs-script
+    path: ${{ steps.pbs.outputs.pbs_filename }}
+```
+
+## Best Practices for Debugging
+
+### 1. Start Simple
+```yaml
+# Begin with a known working recipe
+recipe_name: 'recipe_python.yml'  # Simple, reliable recipe
+```
+
+### 2. Check Logs
+```yaml
+# Enable verbose logging
+env:
+  DEBUG: true
+  VERBOSE: true
+```
+
+### 3. Test Locally
 ```bash
-# On your local machine, test the SSH key
-ssh -i ~/.ssh/your_key your_username@gadi.nci.org.au
+# Test configuration manager directly
+cd smart-recipe-runner
+python lib/config-manager.py --recipe recipe_python.yml --recipe-dir ./recipes
+
+# Test recipe runner directly  
+python lib/recipe-runner.py recipe_python.yml '{"rootpath": {"default": "/data"}}'
 ```
 
-**Common SSH Key Issues**
-- Key not in OpenSSH format (convert with `ssh-keygen -p -m OpenSSH -f key`)
-- Key includes passphrase but `GADI_KEY_PASSPHRASE` not set
-- Key not added to authorized_keys on Gadi
-- Wrong username in GADI_USER secret
-
-**Password-Protected SSH Keys**
-
-If your SSH key requires a passphrase, you'll see errors like:
-```
-Error: Load key "...": incorrect passphrase supplied to decrypt private key
-Error: Permission denied (publickey)
+### 4. Validate Outputs
+```yaml
+# Always check the action outputs
+- name: Check Outputs
+  run: |
+    echo "Status: ${{ steps.generate.outputs.status }}"
+    echo "PBS File: ${{ steps.generate.outputs.pbs_filename }}"
+    ls -la *.pbs || echo "No PBS files found"
 ```
 
-**Solution:**
-1. Set the `GADI_KEY_PASSPHRASE` secret with your key passphrase
-2. Ensure your CI environment has `expect` available for automated passphrase handling
-3. Alternative: Generate a passphrase-free key specifically for CI/CD
+## Getting Help
 
-```bash
-# Generate a new passphrase-free key for CI/CD
-ssh-keygen -t rsa -b 4096 -f ~/.ssh/gadi_ci_key -N ""
-# Add the public key to your Gadi authorized_keys
-cat ~/.ssh/gadi_ci_key.pub >> ~/.ssh/authorized_keys
-```
+### Action Logs
+- Check the GitHub Actions logs for detailed error messages
+- Look for specific error codes and messages
+- Enable debug mode for more verbose output
 
-**Debugging Password-Protected Keys:**
-Check the workflow logs for these messages:
-- `🔐 Detected password-protected SSH key` - Key passphrase detected
-- `🔧 SSH agent started with PID: <number>` - SSH agent initialization successful
-- `✅ Successfully added SSH key to agent (<method>)` - SSH agent setup successful with specific method
-- `❌ Failed to add key` - SSH agent setup failed
-- `⚠️ Warning: Could not setup SSH agent, falling back to local mode` - Fallback to local execution
+### Community Support
+- Check the [GitHub Issues](https://github.com/rbeucher/smart-recipe-runner/issues) for similar problems
+- Create a new issue with:
+  - Complete error message
+  - Workflow configuration (sanitized)
+  - Expected vs. actual behavior
 
-**Common SSH Agent Script Errors:**
-
-1. **"here-document at line X delimited by end-of-file"**
-   - This was a bug in earlier versions with malformed expect scripts
-   - **Solution**: Update to the latest version of the action
-   - **Fixed in**: v1.1+ (expect script syntax corrected)
+### Debug Information to Include
+When reporting issues, include:
+- Complete error message
+- Recipe name and type being tested
+- Workflow YAML configuration (remove secrets)
+- Action version being used
+- Any custom configuration provided
 
 2. **"syntax error: unexpected end of file"**
    - Related to the above heredoc issue

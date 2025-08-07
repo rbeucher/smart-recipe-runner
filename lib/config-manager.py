@@ -35,13 +35,13 @@ class ResourceConfig:
 class SmartConfigManager:
     """Intelligent configuration manager for ESMValTool recipes."""
     
-    def __init__(self, recipe_dir: str, config_path: str, hpc_system: str = 'gadi'):
-        self.recipe_dir = Path(recipe_dir)
-        self.config_path = Path(config_path)
-        self.hpc_system = hpc_system
+    def __init__(self, recipe_dir: str = None, config_path: str = None):
+        # Set default paths if not provided
+        self.recipe_dir = Path(recipe_dir) if recipe_dir else Path('./recipes')
+        self.config_path = Path(config_path) if config_path else Path('./config.yml')
         self.config_cache = {}
         
-        # If recipe_dir doesn't exist, try to find ESMValTool recipes in cloned repo
+        # Try to find ESMValTool recipes in cloned repo if recipe_dir doesn't exist
         if not self.recipe_dir.exists():
             potential_paths = [
                 Path('./esmvaltool-repo/esmvaltool/recipes'),
@@ -54,34 +54,34 @@ class SmartConfigManager:
                     self.recipe_dir = path
                     break
             else:
-                print(f"⚠️  Recipe directory {recipe_dir} not found, will use fallback configurations")
+                print(f"⚠️  Recipe directory not found, will use fallback configurations")
         
-        # Default resource mappings based on analysis of existing recipes
+        # Default resource mappings based on PBS queue system
         self.default_resources = {
             'light': ResourceConfig(
                 queue='copyq',
-                memory='32GB',
-                walltime='2:00:00',
+                memory='16GB',
+                walltime='1:00:00',
                 max_parallel_tasks=None,
                 group='light'
             ),
             'medium': ResourceConfig(
                 queue='normal',
-                memory='64GB', 
-                walltime='4:00:00',
+                memory='32GB', 
+                walltime='2:00:00',
                 max_parallel_tasks=None,
                 group='medium'
             ),
             'heavy': ResourceConfig(
                 queue='normal',
-                memory='128GB',
-                walltime='8:00:00',
+                memory='64GB',
+                walltime='4:00:00',
                 max_parallel_tasks=None,
                 group='heavy'
             ),
             'megamem': ResourceConfig(
                 queue='megamem',
-                memory='1000GB',
+                memory='256GB',
                 walltime='8:00:00',
                 max_parallel_tasks=1,
                 group='megamem'
@@ -227,7 +227,6 @@ class SmartConfigManager:
             'metadata': {
                 'generated_by': 'Smart Recipe Runner',
                 'recipe_hash': self.get_config_hash(),
-                'hpc_system': self.hpc_system,
                 'project': project,
                 'storage_paths': storage_paths.split(',')
             },
@@ -486,12 +485,9 @@ def main():
     parser = argparse.ArgumentParser(description='Smart Configuration Manager')
     parser.add_argument('--recipe', required=True, help='Recipe name or "all" for matrix generation')
     parser.add_argument('--mode', default='run-only', help='Execution mode')
-    parser.add_argument('--config-path', required=True, help='Config file path')
-    parser.add_argument('--recipe-dir', required=True, help='Recipe directory')
+    parser.add_argument('--config-path', help='Config file path')
+    parser.add_argument('--recipe-dir', help='Recipe directory')
     parser.add_argument('--force-regen', default='false', help='Force regeneration')
-    parser.add_argument('--hpc-system', default='gadi', help='HPC system')
-    parser.add_argument('--project', default='w40', help='Project name')
-    parser.add_argument('--storage', default='', help='Storage paths')
     # Matrix generation arguments
     parser.add_argument('--generate-matrix', action='store_true', help='Generate execution matrix')
     parser.add_argument('--recipe-filter', default='.*', help='Recipe filter pattern')
@@ -502,8 +498,7 @@ def main():
     
     manager = SmartConfigManager(
         recipe_dir=args.recipe_dir,
-        config_path=args.config_path,
-        hpc_system=args.hpc_system
+        config_path=args.config_path
     )
     
     force_regen = args.force_regen.lower() == 'true'

@@ -1,6 +1,7 @@
 import os
 import subprocess
 import pytest
+import json
 
 
 def test_recipe_runner_initialization():
@@ -20,10 +21,9 @@ def test_recipe_runner_initialization():
     
     runner = recipe_runner_module.SmartRecipeRunner()
     
-    assert runner.gadi_host == 'gadi.nci.org.au'
-    assert runner.gadi_user == 'test_user'
-    assert runner.gadi_key == 'test_key'
-    assert runner.scripts_dir == '/tmp/scripts'
+    # Test that basic attributes exist
+    assert hasattr(runner, 'log_dir')
+    assert str(runner.log_dir).endswith('logs')
 
 
 def test_check_recent_runs(recipe_runner):
@@ -55,19 +55,16 @@ def test_determine_esmvaltool_path(recipe_runner, version, expected_path_contain
 
 def test_generate_pbs_script(recipe_runner, mock_config, monkeypatch):
     """Test PBS script generation."""
-    from unittest.mock import MagicMock
     
     if not hasattr(recipe_runner, 'generate_pbs_script'):
         pytest.skip("SmartRecipeRunner.generate_pbs_script not available")
     
-    # The actual method signature: generate_pbs_script(recipe_name, config, esmvaltool_version, conda_module)
-    monkeypatch.setattr(recipe_runner, 'determine_esmvaltool_path', MagicMock(return_value=('/path/to/esmvaltool', 'recipes')))
-    
     script = recipe_runner.generate_pbs_script(
         recipe_name='test_recipe',
         config=mock_config,
+        recipe_type='esmvaltool',
         esmvaltool_version='main',
-        conda_module='esmvaltool'
+        conda_module='conda/access-med'
     )
     
     assert isinstance(script, str)
@@ -112,42 +109,23 @@ def test_submit_job(recipe_runner, monkeypatch):
     
     assert job_id is not None or status is not None
 @pytest.mark.parametrize("dry_run", [True, False])
-def test_run_method(recipe_runner, dry_run, monkeypatch):
-    """Test the main run method."""
-    from unittest.mock import MagicMock
-    
-    if not hasattr(recipe_runner, 'run'):
-        pytest.skip("SmartRecipeRunner.run not available")
-    
-    # Config should match what the run method expects - flat structure with required keys
-    mock_config = {
-        'queue': 'normal',
-        'memory': '8gb',
-        'walltime': '03:00:00',
-        'group': 'medium'
-    }
-    
-    # Convert config to JSON string as expected by the method
-    import json
+def test_run_method(recipe_runner, mock_config, dry_run):
+    """Test the run method."""
     config_json = json.dumps(mock_config)
-    
-    mode = 'dry-run' if dry_run else 'run'
-    
-    monkeypatch.setattr(recipe_runner, 'generate_pbs_script', MagicMock(return_value='mock_script'))
-    monkeypatch.setattr(recipe_runner, 'submit_job', MagicMock(return_value=('12345', 'submitted', '')))
-    monkeypatch.setattr(recipe_runner, 'check_recent_runs', MagicMock(return_value=True))
     
     result = recipe_runner.run(
         recipe_name='test_recipe',
         config_json=config_json,
+        recipe_type='esmvaltool',
         esmvaltool_version='main',
-        conda_module='esmvaltool',
-        mode=mode
+        conda_module='conda/access-med'
     )
     
-    # Should return a tuple (status, job_id)
+    # Should return a tuple (status, pbs_filename)
     assert isinstance(result, tuple)
     assert len(result) == 2
+    assert result[0] == 'pbs-generated'
+    assert result[1].endswith('.pbs')
 
 
 # Integration tests
@@ -200,14 +178,9 @@ def test_resource_validation(config):
 
 
 @pytest.mark.slow
-def test_full_workflow_dry_run(recipe_runner, monkeypatch):
-    """Test complete workflow in dry run mode."""
-    from unittest.mock import MagicMock
+def test_full_workflow_dry_run(recipe_runner):
+    """Test a complete workflow in dry run mode."""
     
-    if not hasattr(recipe_runner, 'run'):
-        pytest.skip("SmartRecipeRunner.run not available")
-    
-    # Config should match what the run method expects - flat structure
     mock_config = {
         'queue': 'normal',
         'memory': '128gb',
@@ -216,25 +189,20 @@ def test_full_workflow_dry_run(recipe_runner, monkeypatch):
     }
     
     # Convert config to JSON string
-    import json
     config_json = json.dumps(mock_config)
-    
-    # Mock all external dependencies
-    monkeypatch.setattr(recipe_runner, 'check_recent_runs', MagicMock(return_value=True))
-    monkeypatch.setattr(recipe_runner, 'generate_pbs_script', MagicMock(return_value='mock_script'))
-    monkeypatch.setattr(recipe_runner, 'submit_job', MagicMock(return_value=('mock_job_id', 'submitted', '')))
     
     result = recipe_runner.run(
         recipe_name='complex_recipe',
         config_json=config_json,
+        recipe_type='esmvaltool',
         esmvaltool_version='main',
-        conda_module='esmvaltool',
-        mode='dry-run'
+        conda_module='conda/access-med'
     )
     
-    # Should complete successfully in dry run mode
+    # Should complete successfully 
     assert isinstance(result, tuple)
     assert len(result) == 2
+    assert result[0] == 'pbs-generated'
 
 
 if __name__ == '__main__':

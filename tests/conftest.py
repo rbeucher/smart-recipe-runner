@@ -42,11 +42,10 @@ def config_manager():
     if module is None:
         pytest.skip("SmartConfigManager module not available")
     
-    # SmartConfigManager requires recipe_dir, config_path, and hpc_system
+    # SmartConfigManager simplified constructor
     return module.SmartConfigManager(
         recipe_dir='/tmp/recipes',
-        config_path='/tmp/config',
-        hpc_system='gadi'
+        config_path='/tmp/config'
     )
 
 
@@ -64,13 +63,8 @@ def recipe_runner():
                 pass
         return MockRecipeRunner()
     
-    # Mock environment variables for SmartRecipeRunner
-    import os as os_module
-    os_module.environ.setdefault('GADI_USER', 'test_user')
-    os_module.environ.setdefault('GADI_KEY', 'test_key')
-    os_module.environ.setdefault('SCRIPTS_DIR', '/tmp/scripts')
-    
-    return module.SmartRecipeRunner()
+    # SmartRecipeRunner simplified constructor
+    return module.SmartRecipeRunner(log_dir='/tmp/logs')
 
 
 @pytest.fixture

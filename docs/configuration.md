@@ -1,103 +1,86 @@
 # Configuration Guide
 
-This guide explains how to configure and customize the Smart Recipe Runner for your ESMValTool workflows.
+This guide explains how to configure and use the Smart Recipe Runner for ESMValTool and COSIMA workflows.
 
 ## Quick Start Configuration
 
-The Smart Recipe Runner works out of the box with minimal configuration. For basic usage, you only need to provide GitHub secrets for HPC access:
+The Smart Recipe Runner works with minimal configuration. For basic usage, you only need to specify the recipe type and recipe name:
 
 ```yaml
-# Required secrets in your GitHub repository
-GADI_USER: your-hpc-username
-GADI_KEY: |
-  <paste your SSH private key here>
-  <multi-line SSH private key in OpenSSH format>
-GADI_SCRIPTS_DIR: /path/to/your/scripts/directory
+- name: Test ESMValTool Recipe
+  uses: rbeucher/smart-recipe-runner@main
+  with:
+    recipe_type: 'esmvaltool'
+    recipe_name: 'recipe_python.yml'
 ```
 
-## Configuration Files
+## Input Parameters
 
-### Repository Configuration (`repository-config.yml`)
+### Required Parameters
 
-The Smart Recipe Runner automatically generates and maintains a configuration file at `.github/config/repository-config.yml`. This file contains:
+| Parameter | Description | Values |
+|-----------|-------------|--------|
+| `recipe_type` | Type of recipe to execute | `esmvaltool`, `cosima` |
+| `recipe_name` | Name of the recipe file | Recipe filename (e.g., `recipe_python.yml`) |
 
+### Optional Parameters
+
+| Parameter | Description | Default | Example |
+|-----------|-------------|---------|---------|
+| `config` | Configuration JSON string | `{}` | `'{"rootpath": {"default": "/data"}}'` |
+| `esmvaltool_version` | ESMValTool version (for esmvaltool recipes) | `main` | `main`, `latest`, `v2.13.0` |
+| `conda_module` | Conda module to load | `conda/access-med` | `conda/access-med` |
+| `repository_url` | Custom repository URL | - | `https://github.com/myorg/recipes` |
+
+## Configuration Examples
+
+### Basic ESMValTool Recipe
 ```yaml
-# Auto-generated configuration
-version: "1.0"
-generated_at: "2024-01-15T10:30:00Z"
-generator: "smart-recipe-runner"
-
-# Recipe-specific configurations
-recipes:
-  - name: "recipe_example"
-    group: "small"
-    memory: "2gb"
-    cpus: 2
-    walltime: "01:00:00"
-    queue: "normal"
-    
-  - name: "recipe_climate_analysis"
-    group: "large"
-    memory: "16gb"
-    cpus: 8
-    walltime: "06:00:00"
-    queue: "normal"
-
-# Resource group definitions
-resource_groups:
-  small:
-    memory: "2gb"
-    cpus: 2
-    walltime: "01:00:00"
-    queue: "normal"
-    description: "Light diagnostic recipes"
-  
-  medium:
-    memory: "8gb"
-    cpus: 4
-    walltime: "03:00:00"
-    queue: "normal"
-    description: "Standard analysis recipes"
-    
-  large:
-    memory: "16gb"
-    cpus: 8
-    walltime: "06:00:00"
-    queue: "normal"
-    description: "Complex climate analysis"
-    
-  extra-large:
-    memory: "32gb"
-    cpus: 16
-    walltime: "12:00:00"
-    queue: "normal"
-    description: "Heavy computational workloads"
+- name: Test Python Recipe
+  uses: rbeucher/smart-recipe-runner@main
+  with:
+    recipe_type: 'esmvaltool'
+    recipe_name: 'recipe_python.yml'
+    esmvaltool_version: 'main'
 ```
 
-### User Configuration (`config-user.yml`)
-
-Your ESMValTool user configuration should be placed in the `config/` directory:
-
+### ESMValTool with Custom Configuration
 ```yaml
-# ESMValTool user configuration
-output_dir: /path/to/output
-auxiliary_data_dir: /path/to/auxiliary_data
-rootpath:
-  CMIP6: /path/to/cmip6/data
-  OBS: /path/to/obs/data
-drs:
-  CMIP6: ESGF
-  OBS: default
-log_level: info
-exit_on_warning: false
-output_file_type: png
-compress_netcdf: false
-save_intermediary_cubes: false
-remove_preproc_dir: true
-max_parallel_tasks: null
+- name: Test Recipe with Config
+  uses: rbeucher/smart-recipe-runner@main
+  with:
+    recipe_type: 'esmvaltool'
+    recipe_name: 'recipe_ocean.yml'
+    config: |
+      {
+        "rootpath": {
+          "CMIP6": "/g/data/ks32/CMIP6",
+          "OBS": "/g/data/ks32/obs"
+        },
+        "output_dir": "/scratch/abc123/esmvaltool_output"
+      }
 ```
 
-## Action Configuration
+### COSIMA Recipe
+```yaml
+- name: Test COSIMA Recipe
+  uses: rbeucher/smart-recipe-runner@main
+  with:
+    recipe_type: 'cosima'
+    recipe_name: 'ocean_analysis'
+    repository_url: 'https://github.com/COSIMA/cosima-recipes'
+```
+
+### Custom Repository
+```yaml
+- name: Test Custom Repository
+  uses: rbeucher/smart-recipe-runner@main
+  with:
+    recipe_type: 'esmvaltool'
+    recipe_name: 'my_custom_recipe.yml'
+    repository_url: 'https://github.com/myorg/my-esmvaltool-recipes'
+    esmvaltool_version: 'v2.12.0'
+```
 
 ### Basic Configuration
 
@@ -115,105 +98,168 @@ max_parallel_tasks: null
 - name: Run Complex Recipe
   uses: ACCESS-NRI/smart-recipe-runner@v1
   with:
-    # Recipe configuration
-    recipe: recipe_climate_analysis
-    mode: setup-and-run
-    
-    # ESMValTool configuration
-    esmvaltool_version: main
-    config_file: config/config-user-custom.yml
-    
-    # Resource overrides (optional)
-    memory: 32gb
-    cpus: 16
-    walltime: "08:00:00"
-    queue: hugemem
-    
-    # Execution options
-    force_config_regeneration: true
-    debug_mode: true
+## Matrix Testing
+
+The Smart Recipe Runner supports matrix testing for executing multiple recipes:
+
+### Basic Matrix Testing
+```yaml
+strategy:
+  matrix:
+    recipe_type: ['esmvaltool']
+    recipe_name: 
+      - 'recipe_python.yml'
+      - 'recipe_ocean_example.yml'
+      - 'recipe_climate.yml'
+      
+steps:
+  - name: Test Recipe Matrix
+    uses: rbeucher/smart-recipe-runner@main
+    with:
+      recipe_type: ${{ matrix.recipe_type }}
+      recipe_name: ${{ matrix.recipe_name }}
 ```
 
-## Input Parameters Reference
+### Advanced Matrix with Different Configurations
+```yaml
+strategy:
+  matrix:
+    include:
+      - recipe_type: 'esmvaltool'
+        recipe_name: 'recipe_python.yml'
+        esmvaltool_version: 'main'
+      - recipe_type: 'esmvaltool'
+        recipe_name: 'recipe_ocean.yml'
+        esmvaltool_version: 'v2.12.0'
+      - recipe_type: 'cosima'
+        recipe_name: 'ocean_analysis'
+        repository_url: 'https://github.com/COSIMA/cosima-recipes'
+      
+steps:
+  - name: Test Recipe
+    uses: rbeucher/smart-recipe-runner@main
+    with:
+      recipe_type: ${{ matrix.recipe_type }}
+      recipe_name: ${{ matrix.recipe_name }}
+      esmvaltool_version: ${{ matrix.esmvaltool_version }}
+      repository_url: ${{ matrix.repository_url }}
+```
 
-### Required Parameters
+## Resource Allocation
 
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `recipe` | Name of the ESMValTool recipe to run | `recipe_example` |
+The Smart Recipe Runner automatically allocates resources based on recipe analysis:
 
-### Optional Parameters
+### Resource Categories
 
-#### Recipe Configuration
-| Parameter | Description | Default | Example |
-|-----------|-------------|---------|---------|
-| `mode` | Execution mode | `setup-and-run` | `run-only`, `config-check`, `dry-run` |
-| `esmvaltool_version` | ESMValTool version/branch | `main` | `v2.8.0`, `develop` |
-| `config_file` | User configuration file path | `config/config-user.yml` | `config/custom.yml` |
+| Category | Queue | Memory | NCPUs | Walltime | Use Case |
+|----------|-------|---------|-------|----------|----------|
+| `light` | copyq | 16GB | 2 | 1:00:00 | Simple diagnostics, quick plots |
+| `medium` | normal | 32GB | 4 | 2:00:00 | Standard analysis workflows |
+| `heavy` | normal | 64GB | 8 | 4:00:00 | Complex climate analysis |
+| `megamem` | megamem | 256GB | 16 | 8:00:00 | Memory-intensive workloads |
 
-#### Resource Configuration
-| Parameter | Description | Default | Example |
-|-----------|-------------|---------|---------|
-| `memory` | Memory allocation | Auto-detected | `2gb`, `16gb`, `32gb` |
-| `cpus` | CPU count | Auto-detected | `2`, `8`, `16` |
-| `walltime` | Maximum runtime | Auto-detected | `01:00:00`, `12:00:00` |
-| `queue` | PBS queue name | `normal` | `express`, `hugemem` |
+### Automatic Classification
 
-#### Execution Options
-| Parameter | Description | Default | Example |
-|-----------|-------------|---------|---------|
-| `force_config_regeneration` | Force config regeneration | `false` | `true`, `false` |
-| `debug_mode` | Enable debug logging | `false` | `true`, `false` |
+The system analyzes recipes using multiple factors:
 
-## Resource Groups Explained
+```yaml
+# Complexity factors analyzed:
+- Number of datasets (more datasets = higher complexity)
+- Number of diagnostics (more diagnostics = more processing)
+- Memory-intensive keywords (climwip, ipcc, cmip6, bias, multimodel)
+- Time-intensive operations (timeseries, trend, climatology)
+```
 
-### Small (`small`)
-- **Memory**: 2GB
-- **CPUs**: 2
-- **Walltime**: 1 hour
-- **Use cases**: Simple diagnostics, data validation, quick analyses
-- **Example recipes**: `recipe_check_obs`, basic plotting recipes
+### Known Recipe Classifications
 
-### Medium (`medium`)
-- **Memory**: 8GB
-- **CPUs**: 4
-- **Walltime**: 3 hours
-- **Use cases**: Standard analysis workflows, multi-variable diagnostics
-- **Example recipes**: Most CMIP evaluation recipes
+Some recipes are pre-classified based on community knowledge:
 
-### Large (`large`)
-- **Memory**: 16GB
-- **CPUs**: 8
-- **Walltime**: 6 hours
-- **Use cases**: Complex climate analysis, multi-model ensembles
-- **Example recipes**: Climate change projection recipes, comprehensive evaluations
+**Heavy Recipes:**
+- `recipe_anav13jclim`
+- `recipe_bock20jgr_fig_6-7`
+- `recipe_check_obs`
+- `recipe_collins13ipcc`
 
-### Extra-Large (`extra-large`)
-- **Memory**: 32GB
-- **CPUs**: 16
-- **Walltime**: 12 hours
-- **Use cases**: Intensive computational work, large datasets, machine learning
-- **Example recipes**: High-resolution analysis, statistical downscaling
+**Megamem Recipes:**
+- `recipe_collins13ipcc`
+- `recipe_schlund20esd`  
+- `recipe_ipccwg1ar6ch3_fig_3_42_a`
 
-## Automatic Classification
+## Integration with ssh-action
 
-The Smart Recipe Runner uses heuristic analysis to automatically classify recipes:
+The Smart Recipe Runner generates PBS scripts that can be submitted via ssh-action:
 
-### Classification Factors
+### Complete Workflow Example
+```yaml
+name: ESMValTool Recipe Testing
 
-1. **Diagnostic Count**: Number of diagnostic scripts in the recipe
-2. **Variable Count**: Number of variables being processed
-3. **Dataset Count**: Number of datasets being analyzed
-4. **Time Range**: Temporal scope of the analysis
-5. **Spatial Resolution**: Resolution of the data being processed
+on: [push, pull_request]
 
-### Override Classification
+jobs:
+  generate-pbs:
+    runs-on: ubuntu-latest
+    outputs:
+      pbs_filename: ${{ steps.generate.outputs.pbs_filename }}
+      status: ${{ steps.generate.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Generate PBS Script
+        id: generate
+        uses: rbeucher/smart-recipe-runner@main
+        with:
+          recipe_type: 'esmvaltool'
+          recipe_name: 'recipe_python.yml'
+          config: |
+            {
+              "rootpath": {
+                "CMIP6": "/g/data/ks32/CMIP6"
+              }
+            }
+  
+  submit-to-hpc:
+    needs: generate-pbs
+    if: needs.generate-pbs.outputs.status == 'pbs-generated'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Submit Job to Gadi
+        uses: ACCESS-NRI/ssh-action@v1
+        with:
+          host: 'gadi.nci.org.au'
+          username: ${{ secrets.GADI_USERNAME }}
+          key: ${{ secrets.GADI_SSH_KEY }}
+          script: |
+            cd /scratch/$USER/scripts
+            qsub ${{ needs.generate-pbs.outputs.pbs_filename }}
+```
 
-You can override automatic classification by:
+## Troubleshooting
 
-1. **Adding recipe to known recipes**: Modify the configuration file
-2. **Using resource parameters**: Override specific resources in the action call
-3. **Creating custom resource groups**: Define new resource categories
+### Common Issues
+
+**Recipe not found:**
+- Ensure the recipe name matches exactly (case-sensitive)
+- Check that the recipe exists in the specified repository
+- Verify repository URL is accessible
+
+**Resource allocation issues:**
+- Check that the PBS queue is available on your HPC system
+- Verify project allocation has sufficient resources
+- Consider overriding resource classification for problematic recipes
+
+**Configuration errors:**
+- Validate JSON syntax in config parameter
+- Ensure all required paths exist on the HPC system
+- Check ESMValTool version compatibility
+
+### Debug Mode
+
+Enable verbose logging by setting environment variables:
+```yaml
+env:
+  DEBUG: true
+  VERBOSE: true
+```
 
 ```yaml
 # Override example
@@ -252,115 +298,44 @@ def select_queue(memory, cpus, walltime):
         return "normal"
 ```
 
-## Environment Variables
+## Output Files
 
-### Required Environment Variables
+The Smart Recipe Runner generates the following outputs:
 
-Set these in your GitHub repository secrets:
+### PBS Script
+- **Filename**: `launch_{recipe_name}.pbs`
+- **Content**: Optimized PBS script for HPC execution
+- **Location**: Current working directory
+- **Purpose**: Ready for upload and submission via ssh-action
 
-```bash
-GADI_USER         # Your HPC username
-GADI_KEY          # Your SSH private key
-GADI_KEY_PASSPHRASE   # Passphrase for password-protected SSH keys (optional)
-GADI_SCRIPTS_DIR  # Directory for script storage on HPC
-GITHUB_TOKEN      # GitHub access token (usually automatic)
-```
+### Configuration Cache
+- **Purpose**: Speeds up subsequent runs by caching recipe analysis
+- **Location**: Automatically managed
+- **Invalidation**: Automatic when recipes change
 
-#### SSH Key Configuration
+## Best Practices
 
-The Smart Recipe Runner supports both regular and password-protected SSH keys, and can handle SSH keys provided as either file paths or content:
+### Recipe Selection
+- Use descriptive recipe names that match your analysis purpose
+- Keep recipes focused on specific tasks for better resource allocation
+- Test complex recipes with simpler versions first
 
-**For regular SSH keys (no passphrase):**
-```yaml
-# Option 1: SSH key content (typical in GitHub Actions)
-GADI_KEY: |
-  -----BEGIN OPENSSH PRIVATE KEY-----
-  <your private key content>
-  -----END OPENSSH PRIVATE KEY-----
+### Configuration Management
+- Use JSON format for configuration parameters
+- Keep paths relative to HPC system structure
+- Test configurations with small datasets first
 
-# Option 2: SSH key file path (local development)
-GADI_KEY: /path/to/your/private/key
-```
+### Resource Optimization
+- Let automatic classification handle resource allocation when possible
+- Override only when you know specific requirements
+- Monitor actual resource usage to optimize future runs
 
-**For password-protected SSH keys:**
-```yaml
-# Option 1: SSH key content with passphrase (typical in GitHub Actions)
-GADI_KEY: |
-  -----BEGIN OPENSSH PRIVATE KEY-----
-  <your encrypted private key content>
-  -----END OPENSSH PRIVATE KEY-----
-GADI_KEY_PASSPHRASE: your-key-passphrase
+### Workflow Integration
+- Separate PBS generation from job submission for better error handling
+- Use matrix strategies for testing multiple recipes efficiently
+- Implement proper error handling and cleanup
 
-# Option 2: SSH key file path with passphrase (local development)
-GADI_KEY: /path/to/your/encrypted/key
-GADI_KEY_PASSPHRASE: your-key-passphrase
-```
-
-**Automatic Key Handling:**
-
-The runner automatically detects whether `GADI_KEY` contains:
-- **SSH key content**: If it starts with `-----BEGIN`, a temporary file is created
-- **File path**: If it doesn't start with `-----BEGIN`, it's treated as a file path
-
-When `GADI_KEY_PASSPHRASE` is provided, the runner will:
-1. Start an SSH agent
-2. Create a temporary key file if needed (for key content)
-3. Add the key to the agent using the passphrase (multiple methods attempted)
-4. Use the agent for all SSH connections
-5. Clean up temporary files and agent when finished
-
-**Note:** For CI/CD environments, ensure your build system has `expect` or similar tools available for automated passphrase handling.
-
-### Optional Environment Variables
-
-```bash
-# ESMValTool configuration
-ESMVALTOOL_VERSION    # Override default version
-CONFIG_FILE           # Override default config file
-
-# Resource configuration
-DEFAULT_MEMORY        # Default memory allocation
-DEFAULT_CPUS          # Default CPU count
-DEFAULT_WALLTIME      # Default walltime
-DEFAULT_QUEUE         # Default queue
-
-# Debugging
-DEBUG_MODE            # Enable debug logging
-VERBOSE_OUTPUT        # Enable verbose output
-```
-
-## Custom Resource Groups
-
-You can define custom resource groups for specialized workloads:
-
-```yaml
-# In repository-config.yml
-resource_groups:
-  ml-optimized:
-    memory: "64gb"
-    cpus: 32
-    walltime: "24:00:00"
-    queue: "hugemem"
-    description: "Machine learning workloads"
-    
-  data-intensive:
-    memory: "8gb"
-    cpus: 4
-    walltime: "12:00:00"
-    queue: "normal"
-    description: "I/O intensive operations"
-```
-
-## Troubleshooting Configuration
-
-### Common Issues
-
-1. **Recipe not found**: Ensure recipe file exists in recipes directory
-2. **SSH connection failed**: Check GADI_USER and GADI_KEY secrets
-3. **Resource allocation failed**: Verify queue limits and resource requests
-4. **Configuration not updating**: Set `force_config_regeneration: true`
-
-### Debug Mode
+This simplified configuration system focuses on the core functionality while providing flexibility for advanced use cases.
 
 Enable debug mode for detailed logging:
 
