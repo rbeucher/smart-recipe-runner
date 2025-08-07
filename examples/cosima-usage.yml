@@ -1,51 +1,77 @@
-name: COSIMA Recipe Execution
+name: COSIMA Ocean Analysis
 
 on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
-    inputs:
-      recipe:
-        description: 'COSIMA recipe name to run'
-        required: true
-        default: 'example_analysis'
-      repository_url:
-        description: 'COSIMA repository URL'
-        required: false
-        default: 'https://github.com/COSIMA/cosima-recipes'
-      custom_config:
-        description: 'Custom resource configuration (JSON)'
-        required: false
-        default: '{"queue":"normal","memory":"16gb","walltime":"03:00:00"}'
-
-env:
-  GADI_USER: ${{ secrets.GADI_USER }}
-  GADI_KEY: ${{ secrets.GADI_KEY }}
-  GADI_KEY_PASSPHRASE: ${{ secrets.GADI_KEY_PASSPHRASE }}
-  SCRIPTS_DIR: ${{ secrets.GADI_SCRIPTS_DIR }}
 
 jobs:
-  run-cosima-recipe:
+  generate-pbs:
     runs-on: ubuntu-latest
+    outputs:
+      pbs_filename: ${{ steps.generate.outputs.pbs_filename }}
+      status: ${{ steps.generate.outputs.status }}
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
       
-      - name: Run COSIMA Recipe
-        id: run
+      - name: Generate PBS Script for COSIMA Recipe
+        id: generate
         uses: rbeucher/smart-recipe-runner@main
         with:
-          mode: recipe
-          recipe_name: ${{ github.event.inputs.recipe }}
-          recipe_type: cosima
-          esmvaltool_repository: ${{ github.event.inputs.repository_url }}
-          config: ${{ github.event.inputs.custom_config }}
+          recipe_type: 'cosima'
+          recipe_name: 'mixed_layer_depth_comparison'
+          repository_url: 'https://github.com/COSIMA/cosima-recipes'
+          config: |
+            {
+              "queue": "normal",
+              "memory": "32gb",
+              "walltime": "04:00:00",
+              "project": "tm70"
+            }
       
-      - name: Display Results
+      - name: Validate PBS Script
         run: |
-          echo "🎯 COSIMA Recipe Execution Completed"
-          echo "Recipe: ${{ github.event.inputs.recipe }}"
-          echo "Repository: ${{ github.event.inputs.repository_url }}"
-          echo "Status: ${{ steps.run.outputs.status }}"
-          echo "Resource Group: ${{ steps.run.outputs.resource_group }}"
-          if [ "${{ steps.run.outputs.job_id }}" != "" ]; then
-            echo "PBS Job ID: ${{ steps.run.outputs.job_id }}"
-          fi
+          echo "✅ PBS script generated: ${{ steps.generate.outputs.pbs_filename }}"
+          echo "Status: ${{ steps.generate.outputs.status }}"
+          
+          # Display PBS script content for verification
+          echo "--- PBS Script Content ---"
+          cat ${{ steps.generate.outputs.pbs_filename }}
+          
+      - name: Upload PBS Script
+        uses: actions/upload-artifact@v4
+        with:
+          name: cosima-pbs-script
+          path: ${{ steps.generate.outputs.pbs_filename }}
+          retention-days: 7
+
+  submit-to-hpc:
+    needs: generate-pbs
+    runs-on: ubuntu-latest
+    if: needs.generate-pbs.outputs.status == 'pbs-generated'
+    steps:
+      - name: Download PBS Script
+        uses: actions/download-artifact@v4
+        with:
+          name: cosima-pbs-script
+          
+      - name: Submit COSIMA Job to Gadi
+        uses: ACCESS-NRI/ssh-action@v1
+        with:
+          host: 'gadi.nci.org.au'
+          username: ${{ secrets.GADI_USERNAME }}
+          key: ${{ secrets.GADI_SSH_KEY }}
+          script: |
+            # Create scripts directory
+            mkdir -p /scratch/$USER/cosima-jobs
+            cd /scratch/$USER/cosima-jobs
+            
+            # Submit the PBS job
+            echo "Submitting COSIMA PBS job..."
+            qsub ${{ needs.generate-pbs.outputs.pbs_filename }}
+            
+            # Show job status
+            qstat -u $USER
