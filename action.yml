@@ -1,115 +1,37 @@
 name: 'Smart Recipe Runner'
-description: 'Test ESMValTool recipes and Jupyter notebooks with intelligent resource allocation'
+description: 'Generate PBS scripts for ESMValTool and COSIMA recipes with intelligent resource allocation'
 author: 'ESMValTool Community'
 
 inputs:
-  # Mode selection
-  mode:
-    description: 'Execution mode: recipe, notebook, or both'
-    required: false
-    default: 'recipe'
-  
-  # Recipe-specific inputs
-  recipe:
-    description: 'Name of the ESMValTool recipe to run (alias for recipe_name)'
-    required: false
-  recipe_name:
-    description: 'Name of the ESMValTool recipe to run'
-    required: false
   recipe_type:
     description: 'Type of recipe: esmvaltool or cosima'
-    required: false
-    default: 'esmvaltool'
-  esmvaltool_repository:
-    description: 'ESMValTool repository URL'
-    required: false
-    default: 'https://github.com/ESMValGroup/ESMValTool'
-  esmvaltool_branch:
-    description: 'ESMValTool repository branch'
-    required: false
-    default: 'main'
+    required: true
+  recipe_name:
+    description: 'Name of the recipe to run'
+    required: true
   config:
-    description: 'Recipe configuration (JSON string or file path)'
+    description: 'Recipe configuration (JSON string)'
     required: false
+    default: '{}'
   esmvaltool_version:
-    description: 'ESMValTool version to use'
+    description: 'ESMValTool version to use (for esmvaltool recipes)'
     required: false
     default: 'main'
   conda_module:
-    description: 'Conda module name for ESMValTool'
+    description: 'Conda module to load'
     required: false
-    default: 'esmvaltool'
-  
-  # Notebook-specific inputs
+    default: 'conda/analysis3'
   repository_url:
-    description: 'URL of the repository containing notebooks to test'
+    description: 'Custom repository URL for cloning'
     required: false
-  notebook_categories:
-    description: 'Notebook categories to test (comma-separated: appetisers,mains,tutorials,desserts,papers,all)'
-    required: false
-    default: 'appetisers,tutorials'
-  notebook_mode:
-    description: 'Notebook test mode: test, validate, or dry-run'
-    required: false
-    default: 'test'
-  max_parallel:
-    description: 'Maximum parallel notebook executions'
-    required: false
-    default: '3'
-  continue_on_error:
-    description: 'Continue testing even if notebooks fail'
-    required: false
-    default: 'true'
-    
-  # Dashboard and monitoring inputs
-  enable_dashboard:
-    description: 'Enable dashboard generation and status reporting'
-    required: false
-    default: 'false'
-  dashboard_update:
-    description: 'Update dashboard data (auto, always, never)'
-    required: false
-    default: 'auto'
-  create_status_issue:
-    description: 'Create GitHub issue on failure'
-    required: false
-    default: 'false'
-  dashboard_retention_days:
-    description: 'Number of days to retain dashboard data'
-    required: false
-    default: '30'
-    
-  # General inputs
-  timeout:
-    description: 'Maximum execution time in seconds'
-    required: false
-    default: '3600'
 
 outputs:
   status:
-    description: 'Execution status'
-    value: ${{ steps.set-outputs.outputs.status }}
-  job_id:
-    description: 'PBS job ID (if applicable)'
-    value: ${{ steps.set-outputs.outputs.job_id }}
-  resource_group:
-    description: 'Resource group used for execution'
-    value: ${{ steps.set-outputs.outputs.resource_group }}
-  report_path:
-    description: 'Path to generated test report'
-    value: ${{ steps.set-outputs.outputs.report_path }}
-  summary:
-    description: 'Execution summary'
-    value: ${{ steps.set-outputs.outputs.summary }}
-  dashboard_url:
-    description: 'Dashboard URL (if enabled)'
-    value: ${{ steps.set-outputs.outputs.dashboard_url }}
-  dashboard_status:
-    description: 'Dashboard generation status'
-    value: ${{ steps.set-outputs.outputs.dashboard_status }}
-  issue_number:
-    description: 'GitHub issue number (if created)'
-    value: ${{ steps.set-outputs.outputs.issue_number }}
+    description: 'Generation status (pbs-generated or error)'
+    value: ${{ steps.generate-pbs.outputs.status }}
+  pbs_filename:
+    description: 'Generated PBS script filename'
+    value: ${{ steps.generate-pbs.outputs.pbs_filename }}
 
 runs:
   using: 'composite'
@@ -118,39 +40,17 @@ runs:
       shell: bash
       run: |
         python -m pip install --upgrade pip
-        python -m pip install pyyaml dataclasses-json pytest pytest-cov nbformat nbconvert
+        python -m pip install pyyaml
         
     - name: Setup Smart Recipe Runner
       shell: bash
       run: |
         export PYTHONPATH="${PYTHONPATH}:${{ github.action_path }}/lib"
         echo "PYTHONPATH=${PYTHONPATH}" >> $GITHUB_ENV
-        echo "Action path: ${{ github.action_path }}"
         
     - name: Validate Inputs
       shell: bash
       run: |
-        mode="${{ inputs.mode }}"
-        if [[ "$mode" == "recipe" ]]; then
-          if [[ -z "${{ inputs.recipe_name }}" ]]; then
-            echo "❌ recipe_name is required when mode=recipe"
-            exit 1
-          fi
-        elif [[ "$mode" == "notebook" ]]; then
-          if [[ -z "${{ inputs.repository_url }}" ]]; then
-            echo "❌ repository_url is required when mode=notebook"
-            exit 1
-          fi
-        elif [[ "$mode" == "both" ]]; then
-          if [[ -z "${{ inputs.recipe_name }}" || -z "${{ inputs.repository_url }}" ]]; then
-            echo "❌ Both recipe_name and repository_url are required when mode=both"
-            exit 1
-          fi
-        else
-          echo "❌ Invalid mode: $mode. Must be 'recipe', 'notebook', or 'both'"
-          exit 1
-        fi
-        
         # Validate recipe type
         recipe_type="${{ inputs.recipe_type }}"
         if [[ "$recipe_type" != "esmvaltool" && "$recipe_type" != "cosima" ]]; then
@@ -158,515 +58,123 @@ runs:
           exit 1
         fi
         
-    - name: Setup for Repository Cloning
-      if: inputs.mode == 'recipe' || inputs.mode == 'both'
-      shell: bash
-      run: |
-        echo "🎯 Preparing for HPC execution..."
-        echo "Repository will be cloned on Gadi during PBS execution"
-        echo "Recipe type: ${{ inputs.recipe_type }}"
-        
-        if [[ "${{ inputs.recipe_type }}" == "esmvaltool" ]]; then
-          echo "� ESMValTool repository: ${{ inputs.esmvaltool_repository }}"
-          echo "� ESMValTool branch: ${{ inputs.esmvaltool_branch }}"
-        elif [[ "${{ inputs.recipe_type }}" == "cosima" ]]; then
-          echo "� COSIMA repository: ${{ inputs.esmvaltool_repository }}"
+        # Validate recipe name
+        if [[ -z "${{ inputs.recipe_name }}" ]]; then
+          echo "❌ recipe_name is required"
+          exit 1
         fi
         
-    - name: Clone Notebook Repository
-      if: inputs.mode == 'notebook' || inputs.mode == 'both'
+        echo "✅ Input validation passed"
+        echo "Recipe type: $recipe_type"
+        echo "Recipe name: ${{ inputs.recipe_name }}"
+        
+    - name: Generate PBS Script
+      id: generate-pbs
       shell: bash
       run: |
-        if [[ -n "${{ inputs.repository_url }}" ]]; then
-          echo "🔄 Cloning notebook repository..."
-          git clone "${{ inputs.repository_url }}" ./notebook-repo
-          echo "📁 Repository cloned to ./notebook-repo"
-          ls -la ./notebook-repo
-        fi
+        echo "🎯 Generating PBS script for ${{ inputs.recipe_type }} recipe: ${{ inputs.recipe_name }}"
         
-    - name: Discover and Analyze Notebooks
-      if: inputs.mode == 'notebook' || inputs.mode == 'both'
-      shell: bash
-      run: |
-        echo "🔍 Discovering notebooks..."
-        python ${{ github.action_path }}/lib/notebook-manager.py analyze \
-          --repo-path ./notebook-repo \
-          --categories "${{ inputs.notebook_categories }}" \
-          --output notebook-matrix.json
-        
-        echo "📊 Notebook analysis complete:"
-        cat > analyze_report.py << 'EOF'
-        import json
-        with open('notebook-matrix.json', 'r') as f:
-            matrix = json.load(f)
-        print(f'Repository type: {matrix["repository_type"]}')
-        print(f'Total notebooks: {matrix["total_notebooks"]}')
-        for cat, data in matrix['categories'].items():
-            if data['count'] > 0:
-                print(f'  {cat}: {data["count"]} notebooks')
-        EOF
-        python analyze_report.py
-        
-    - name: Test Notebooks
-      if: inputs.mode == 'notebook' || inputs.mode == 'both'
-      shell: bash
-      run: |
-        echo "🧪 Testing notebooks..."
-        python ${{ github.action_path }}/lib/notebook-runner.py run \
-          --matrix notebook-matrix.json \
-          --mode "${{ inputs.notebook_mode }}" \
-          --max-parallel "${{ inputs.max_parallel }}" \
-          $([ "${{ inputs.continue_on_error }}" == "true" ] && echo "--continue-on-error") \
-          --output notebook-test-report.json
-          
-    - name: Generate PBS Script for HPC Execution
-      if: inputs.mode == 'recipe' || inputs.mode == 'both'
-      shell: bash
-      run: |
-        echo "🎯 Generating PBS script for HPC execution..."
-        
-        # Create recipe runner script
-        cat > run_recipe.py << 'EOF'
+        # Create simple PBS generation script
+        cat > generate_pbs.py << 'EOF'
         import sys
         import os
         import json
         from pathlib import Path
-        sys.path.insert(0, os.environ.get('PYTHONPATH', '').split(':')[1])
         
-        from recipe_runner import SmartRecipeRunner
-        
-        # Create runner for PBS generation
-        runner = SmartRecipeRunner(log_dir='./logs')
+        # Add lib directory to path
+        sys.path.insert(0, os.path.join(os.environ.get('GITHUB_ACTION_PATH', '.'), 'lib'))
         
         try:
+            from recipe_runner import SmartRecipeRunner
+            
+            # Create runner
+            runner = SmartRecipeRunner()
+            
+            # Get parameters
+            recipe_name = sys.argv[1]
+            config_json = sys.argv[2] if len(sys.argv) > 2 else '{}'
+            recipe_type = sys.argv[3] if len(sys.argv) > 3 else 'esmvaltool'
+            esmvaltool_version = sys.argv[4] if len(sys.argv) > 4 else 'main'
+            conda_module = sys.argv[5] if len(sys.argv) > 5 else 'conda/access-med'
+            repository_url = sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] != 'None' else None
+            
+            print(f"Parameters:")
+            print(f"  Recipe: {recipe_name}")
+            print(f"  Type: {recipe_type}")
+            print(f"  Config: {config_json}")
+            print(f"  ESMValTool version: {esmvaltool_version}")
+            print(f"  Conda module: {conda_module}")
+            print(f"  Repository URL: {repository_url}")
+            
+            # Generate PBS script
             result = runner.run(
-                recipe_name=sys.argv[1],
-                config_json=sys.argv[2] if sys.argv[2] else '{}',
-                recipe_type=sys.argv[3],
-                esmvaltool_version=sys.argv[4],
-                conda_module=sys.argv[5],
-                repository_url=sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] != 'None' else None
+                recipe_name=recipe_name,
+                config_json=config_json,
+                recipe_type=recipe_type,
+                esmvaltool_version=esmvaltool_version,
+                conda_module=conda_module,
+                repository_url=repository_url
             )
             
-            print(f'PBS generation result: {result}')
+            print(f"✅ PBS generation completed: {result}")
             
-            # Save results for output
-            with open('recipe-result.json', 'w') as f:
-                json.dump({
-                    'status': result[0] if result else 'unknown',
-                    'pbs_file': result[1] if len(result) > 1 else None,
-                    'recipe_type': sys.argv[3]
-                }, f)
+            # Write outputs for GitHub Actions
+            with open('pbs_result.txt', 'w') as f:
+                f.write(f"status={result[0]}\n")
+                f.write(f"pbs_filename={result[1]}\n")
                 
         except Exception as e:
-            print(f'Error generating PBS script: {e}')
-            with open('recipe-result.json', 'w') as f:
-                json.dump({
-                    'status': 'error',
-                    'error': str(e),
-                    'recipe_type': sys.argv[3]
-                }, f)
+            print(f"❌ Error generating PBS script: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            with open('pbs_result.txt', 'w') as f:
+                f.write("status=error\n")
+                f.write("pbs_filename=\n")
             sys.exit(1)
         EOF
         
-        # Determine repository URL for cloning on Gadi
-        repo_url="${{ inputs.esmvaltool_repository }}"
-        if [[ "${{ inputs.recipe_type }}" == "cosima" ]]; then
-          # Use the repository URL for COSIMA recipes
-          repo_url="${{ inputs.esmvaltool_repository }}"
-        fi
-        
-        python run_recipe.py \
+        # Run PBS generation
+        python generate_pbs.py \
           "${{ inputs.recipe_name }}" \
           "${{ inputs.config }}" \
           "${{ inputs.recipe_type }}" \
           "${{ inputs.esmvaltool_version }}" \
           "${{ inputs.conda_module }}" \
-          "$repo_url"
-          
-    - name: Upload PBS Script via SCP
-      if: (inputs.mode == 'recipe' || inputs.mode == 'both') && env.GADI_USER != ''
-      uses: appleboy/scp-action@v0.1.7
-      with:
-        host: gadi.nci.org.au
-        username: ${{ env.GADI_USER }}
-        key: ${{ env.GADI_KEY }}
-        passphrase: ${{ env.GADI_KEY_PASSPHRASE }}
-        source: "launch_${{ inputs.recipe_name }}.pbs"
-        target: "${{ env.SCRIPTS_DIR }}/../jobs/"
-        timeout: 60s
+          "${{ inputs.repository_url }}"
         
-    - name: Submit PBS Job via SSH
-      if: (inputs.mode == 'recipe' || inputs.mode == 'both') && env.GADI_USER != ''
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: gadi.nci.org.au
-        username: ${{ env.GADI_USER }}
-        key: ${{ env.GADI_KEY }}
-        passphrase: ${{ env.GADI_KEY_PASSPHRASE }}
-        timeout: 2400m
-        script: |
-          # Set up variables
-          SCRIPTS_DIR="${{ env.SCRIPTS_DIR }}"
-          RECIPE_NAME="${{ inputs.recipe_name }}"
-          RECIPE_TYPE="${{ inputs.recipe_type }}"
-          
-          # Navigate to jobs directory
-          cd $SCRIPTS_DIR/../jobs
-          
-          # Backup existing script if it exists
-          if [ -f "launch_${RECIPE_NAME}.pbs" ]; then
-            cp "launch_${RECIPE_NAME}.pbs" "launch_${RECIPE_NAME}.pbs.backup.$(date +%Y%m%d_%H%M%S)"
-            echo "📁 Backed up existing PBS script"
-          fi
-          
-          echo "� Submitting ${RECIPE_TYPE^^} PBS job for ${RECIPE_NAME}..."
-          if [ -f "launch_${RECIPE_NAME}.pbs" ]; then
-            JOB_ID=$(qsub launch_${RECIPE_NAME}.pbs)
-            echo "✅ Job submitted: $JOB_ID"
-            echo "job-id=$JOB_ID" >> $GITHUB_ENV
-            
-            # Monitor job briefly for immediate failures
-            sleep 5
-            job_status=$(qstat -f $JOB_ID 2>/dev/null | grep job_state | awk '{print $3}')
-            echo "📊 Initial job status: $job_status"
-            
-          else
-            echo "❌ Error: PBS script launch_${RECIPE_NAME}.pbs not found"
-            echo "Available files:"
-            ls -la
-            exit 1
-          fi
-        
-    - name: Generate Combined Report
-      shell: bash
-      run: |
-        echo "📋 Generating execution report..."
-        
-        cat > generate_report.py << 'EOF'
-        import json
-        import os
-        from datetime import datetime
-        
-        # Initialize combined report
-        report = {
-            'timestamp': datetime.now().isoformat(),
-            'mode': os.environ.get('MODE', 'unknown'),
-            'summary': {}
-        }
-        
-        # Add notebook results if available
-        if os.path.exists('notebook-test-report.json'):
-            with open('notebook-test-report.json', 'r') as f:
-                notebook_report = json.load(f)
-            report['notebook_results'] = notebook_report
-            report['summary']['notebooks'] = {
-                'total': notebook_report['total_notebooks'],
-                'successful': notebook_report['successful'],
-                'failed': notebook_report['failed']
-            }
-        
-        # Add recipe results if available  
-        if os.path.exists('recipe-result.json'):
-            with open('recipe-result.json', 'r') as f:
-                recipe_result = json.load(f)
-            report['recipe_results'] = recipe_result
-            report['summary']['recipe'] = {
-                'status': recipe_result['status'],
-                'pbs_file': recipe_result.get('pbs_file'),
-                'recipe_type': recipe_result.get('recipe_type', 'esmvaltool'),
-                'job_id': os.environ.get('job-id')  # Set by SSH action
-            }
-        
-        # Write combined report
-        with open('smart-runner-report.json', 'w') as f:
-            json.dump(report, f, indent=2)
-        
-        # Print summary
-        print('🎯 Smart Recipe Runner Summary:')
-        if 'notebooks' in report['summary']:
-            nb_sum = report['summary']['notebooks']
-            print(f'   Notebooks: {nb_sum["successful"]}/{nb_sum["total"]} successful')
-        if 'recipe' in report['summary']:
-            rec_sum = report['summary']['recipe']
-            print(f'   Recipe: {rec_sum["status"]} ({rec_sum["recipe_type"]})')
-            if rec_sum.get('job_id'):
-                print(f'   Job ID: {rec_sum["job_id"]}')
-            if rec_sum.get('pbs_file'):
-                print(f'   PBS File: {rec_sum["pbs_file"]}')
-        
-        print(f'   Full report: smart-runner-report.json')
-        EOF
-        
-        MODE="${{ inputs.mode }}" python generate_report.py
-        
-    - name: Dashboard and Status Processing
-      shell: bash
-      if: ${{ inputs.enable_dashboard == 'true' }}
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-      run: |
-        echo "📊 Processing dashboard and status updates..."
-        
-        # Install additional dependencies for dashboard
-        python -m pip install requests jinja2 matplotlib seaborn pandas plotly
-        
-        # Create dashboard data generation script
-        cat > generate_dashboard_data.py << 'EOF'
-        import requests
-        import json
-        import os
-        from datetime import datetime, timedelta
-        
-        # GitHub API setup
-        token = os.environ.get('GITHUB_TOKEN')
-        headers = {'Authorization': f'token {token}', 'Accept': 'application/vnd.github.v3+json'}
-        repo = os.environ.get('GITHUB_REPOSITORY')
-        
-        def get_workflow_runs(limit=50):
-            """Get recent workflow runs"""
-            url = f'https://api.github.com/repos/{repo}/actions/runs'
-            params = {'per_page': limit, 'status': 'completed'}
-            
-            try:
-                response = requests.get(url, headers=headers, params=params)
-                return response.json().get('workflow_runs', [])
-            except Exception as e:
-                print(f"Warning: Could not fetch workflow runs: {e}")
-                return []
-        
-        def analyze_runs():
-            """Analyze workflow runs for dashboard metrics"""
-            runs = get_workflow_runs()
-            
-            # Initialize stats
-            recipe_stats = {'total': 0, 'success': 0, 'failure': 0, 'cancelled': 0}
-            workflow_stats = {}
-            
-            # Time-based analysis
-            now = datetime.utcnow()
-            last_24h = now - timedelta(hours=24)
-            last_week = now - timedelta(days=7)
-            
-            recent_runs = []
-            weekly_runs = []
-            
-            for run in runs:
-                try:
-                    created_at = datetime.fromisoformat(run['created_at'].replace('Z', '+00:00'))
-                    
-                    if created_at > last_24h:
-                        recent_runs.append(run)
-                    if created_at > last_week:
-                        weekly_runs.append(run)
-                    
-                    # Update workflow stats
-                    workflow_name = run['name']
-                    if workflow_name not in workflow_stats:
-                        workflow_stats[workflow_name] = {'total': 0, 'success': 0, 'failure': 0}
-                    
-                    workflow_stats[workflow_name]['total'] += 1
-                    
-                    if run['conclusion'] == 'success':
-                        workflow_stats[workflow_name]['success'] += 1
-                        recipe_stats['success'] += 1
-                    elif run['conclusion'] == 'failure':
-                        workflow_stats[workflow_name]['failure'] += 1
-                        recipe_stats['failure'] += 1
-                    elif run['conclusion'] == 'cancelled':
-                        recipe_stats['cancelled'] += 1
-                    
-                    recipe_stats['total'] += 1
-                except Exception as e:
-                    print(f"Warning: Error processing run {run.get('id', 'unknown')}: {e}")
-                    continue
-            
-            return {
-                'summary': recipe_stats,
-                'workflows': workflow_stats,
-                'recent_runs': recent_runs[:10],  # Last 10 runs
-                'weekly_runs': len(weekly_runs),
-                'daily_runs': len(recent_runs),
-                'last_updated': datetime.utcnow().isoformat(),
-                'current_run': {
-                    'id': os.environ.get('GITHUB_RUN_ID'),
-                    'number': os.environ.get('GITHUB_RUN_NUMBER'),
-                    'ref': os.environ.get('GITHUB_REF_NAME')
-                }
-            }
-        
-        # Generate dashboard data if enabled
-        if os.environ.get('ENABLE_DASHBOARD') == 'true':
-            try:
-                dashboard_data = analyze_runs()
-                
-                # Add current execution data
-                if os.path.exists('smart-runner-report.json'):
-                    with open('smart-runner-report.json', 'r') as f:
-                        current_report = json.load(f)
-                    dashboard_data['current_execution'] = current_report
-                
-                # Save dashboard data
-                with open('dashboard_data.json', 'w') as f:
-                    json.dump(dashboard_data, f, indent=2)
-                
-                print(f"✅ Dashboard data generated: {len(dashboard_data.get('recent_runs', []))} recent runs")
-                
-                # Store in status directory
-                os.makedirs('.github/status', exist_ok=True)
-                
-                # Save current status
-                with open('.github/status/latest.json', 'w') as f:
-                    json.dump(dashboard_data, f, indent=2)
-                
-                # Create timestamped backup
-                timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-                with open(f'.github/status/report_{timestamp}.json', 'w') as f:
-                    json.dump(dashboard_data, f, indent=2)
-                
-                print("✅ Status data saved")
-                
-            except Exception as e:
-                print(f"❌ Dashboard generation failed: {e}")
-                # Create minimal dashboard data
-                with open('dashboard_data.json', 'w') as f:
-                    json.dump({
-                        'summary': {'total': 1, 'success': 0, 'failure': 1, 'cancelled': 0},
-                        'error': str(e),
-                        'last_updated': datetime.utcnow().isoformat()
-                    }, f, indent=2)
-        
-        EOF
-        
-        # Generate dashboard data
-        ENABLE_DASHBOARD="${{ inputs.enable_dashboard }}" python generate_dashboard_data.py
-        
-    - name: Create Status Issue
-      shell: bash
-      if: ${{ inputs.create_status_issue == 'true' && failure() }}
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-      run: |
-        echo "🚨 Creating status issue for failure..."
-        echo "Issue creation disabled due to YAML complexity - consider using separate workflow"
-        echo "Repository: $GITHUB_REPOSITORY"
-        echo "Run ID: $GITHUB_RUN_ID"
-        
-    - name: Set Outputs
-      id: set-outputs
-      shell: bash
-      run: |
-        # Read the combined report to set outputs
-        if [[ -f "smart-runner-report.json" ]]; then
-          # Create status extraction script
-          cat > extract_status.py << 'EOF'
-          import json
-          with open('smart-runner-report.json', 'r') as f:
-              report = json.load(f)
-              
-          # Determine overall status
-          overall_status = 'success'
-          if 'notebook_results' in report:
-              if report['notebook_results']['failed'] > 0:
-                  overall_status = 'partial_failure'
-          if 'recipe_results' in report:
-              if report['recipe_results']['status'] in ['error', 'failed']:
-                  overall_status = 'failure'
-                  
-          print(overall_status)
-          EOF
-          
-          status=$(python extract_status.py)
-          
-          # Create job ID extraction script
-          cat > extract_job_id.py << 'EOF'
-          import json
-          try:
-              with open('smart-runner-report.json', 'r') as f:
-                  report = json.load(f)
-              job_id = report.get('recipe_results', {}).get('job_id', '')
-              print(job_id if job_id else '')
-          except:
-              print('')
-          EOF
-          
-          job_id=$(python extract_job_id.py)
-          
-          # Create resource group extraction script
-          cat > extract_resource_group.py << 'EOF'
-          import json
-          try:
-              with open('smart-runner-report.json', 'r') as f:
-                  report = json.load(f)
-              resource_group = report.get('recipe_results', {}).get('resource_group', 'unknown')
-              print(resource_group if resource_group else 'unknown')
-          except:
-              print('unknown')
-          EOF
-          
-          resource_group=$(python extract_resource_group.py)
-          
-          # Set GitHub outputs
-          echo "status=$status" >> $GITHUB_OUTPUT
-          echo "job_id=$job_id" >> $GITHUB_OUTPUT
-          echo "resource_group=$resource_group" >> $GITHUB_OUTPUT
-          echo "report_path=smart-runner-report.json" >> $GITHUB_OUTPUT
-          
-          # Create summary extraction script
-          cat > extract_summary.py << 'EOF'
-          import json
-          with open('smart-runner-report.json', 'r') as f:
-              report = json.load(f)
-              
-          summary_parts = []
-          if 'notebook_results' in report:
-              nb = report['notebook_results']
-              summary_parts.append(f'Notebooks: {nb["successful"]}/{nb["total"]} passed')
-          if 'recipe_results' in report:
-              rec = report['recipe_results']
-              summary_parts.append(f'Recipe: {rec["status"]}')
-              
-          print('; '.join(summary_parts))
-          EOF
-          
-          summary=$(python extract_summary.py)
-          
-          echo "summary=$summary" >> $GITHUB_OUTPUT
-          
-          # Dashboard outputs
-          if [[ "${{ inputs.enable_dashboard }}" == "true" ]]; then
-            if [[ -f "dashboard_data.json" ]]; then
-              echo "dashboard_status=generated" >> $GITHUB_OUTPUT
-              echo "dashboard_url=https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" >> $GITHUB_OUTPUT
-            else
-              echo "dashboard_status=failed" >> $GITHUB_OUTPUT
-              echo "dashboard_url=" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "dashboard_status=disabled" >> $GITHUB_OUTPUT
-            echo "dashboard_url=" >> $GITHUB_OUTPUT
-          fi
-          
-          # Issue number output
-          if [[ -f "issue_number.txt" ]]; then
-            issue_num=$(cat issue_number.txt)
-            echo "issue_number=$issue_num" >> $GITHUB_OUTPUT
-          else
-            echo "issue_number=" >> $GITHUB_OUTPUT
-          fi
-          
-          echo "✅ Outputs set:"
-          echo "  Status: $status"
-          echo "  Job ID: $job_id"
-          echo "  Resource Group: $resource_group"
-          echo "  Summary: $summary"
-          echo "  Dashboard: ${{ inputs.enable_dashboard }}"
+        # Set outputs
+        if [[ -f "pbs_result.txt" ]]; then
+          while IFS= read -r line; do
+            echo "$line" >> $GITHUB_OUTPUT
+          done < pbs_result.txt
         else
           echo "status=error" >> $GITHUB_OUTPUT
-          echo "summary=No report generated" >> $GITHUB_OUTPUT
-          echo "dashboard_status=error" >> $GITHUB_OUTPUT
-          echo "dashboard_url=" >> $GITHUB_OUTPUT
-          echo "issue_number=" >> $GITHUB_OUTPUT
+          echo "pbs_filename=" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Display Results
+      shell: bash
+      run: |
+        echo "📋 PBS Script Generation Results:"
+        echo "Status: ${{ steps.generate-pbs.outputs.status }}"
+        echo "PBS Filename: ${{ steps.generate-pbs.outputs.pbs_filename }}"
+        
+        if [[ "${{ steps.generate-pbs.outputs.status }}" == "pbs-generated" ]]; then
+          echo ""
+          echo "✅ PBS script generated successfully!"
+          echo "📁 Script saved as: ${{ steps.generate-pbs.outputs.pbs_filename }}"
+          
+          if [[ -f "${{ steps.generate-pbs.outputs.pbs_filename }}" ]]; then
+            echo ""
+            echo "--- PBS Script Content Preview ---"
+            head -20 "${{ steps.generate-pbs.outputs.pbs_filename }}"
+            echo "..."
+            echo "--- End Preview ---"
+          fi
+        else
+          echo "❌ PBS script generation failed"
+          exit 1
         fi
 
 branding:

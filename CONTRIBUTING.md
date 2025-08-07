@@ -33,8 +33,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 smart-recipe-runner/
 ├── action.yml                 # Main GitHub Action definition
 ├── lib/                      # Python modules
-│   ├── config-manager.py     # Configuration management
-│   ├── recipe-runner.py      # HPC execution logic
+│   ├── recipe-runner.py      # PBS script generation with intelligent defaults
 │   └── requirements.txt      # Python dependencies
 ├── docs/                     # Documentation
 ├── examples/                 # Example workflows

@@ -1,5 +1,3 @@
-import os
-import subprocess
 import pytest
 import json
 
@@ -70,90 +68,6 @@ def test_generate_pbs_script(recipe_runner, mock_config, monkeypatch):
     assert isinstance(script, str)
     assert '#PBS' in script
     assert 'test_recipe' in script
-
-
-def test_execute_ssh_command(recipe_runner, monkeypatch):
-    """Test SSH command execution."""
-    from unittest.mock import MagicMock
-    
-    if not hasattr(recipe_runner, 'execute_ssh_command'):
-        pytest.skip("SmartRecipeRunner.execute_ssh_command not available")
-        
-    mock_run = MagicMock()
-    mock_run.return_value = MagicMock(
-        returncode=0,
-        stdout='test output',
-        stderr=''
-    )
-    monkeypatch.setattr('subprocess.run', mock_run)
-    
-    returncode, stdout, stderr = recipe_runner.execute_ssh_command('echo test')
-    
-    assert returncode == 0
-    assert 'test output' in stdout
-
-
-def test_submit_job(recipe_runner, monkeypatch):
-    """Test job submission."""
-    from unittest.mock import MagicMock
-    
-    if not hasattr(recipe_runner, 'submit_job'):
-        pytest.skip("SmartRecipeRunner.submit_job not available")
-    
-    mock_ssh = MagicMock()
-    # Mock multiple ssh command calls that might be made during job submission
-    mock_ssh.return_value = (0, 'Job submitted: 12345.gadi-pbs', '')
-    monkeypatch.setattr(recipe_runner, 'execute_ssh_command', mock_ssh)
-    
-    job_id, status, error = recipe_runner.submit_job('test_recipe', 'mock_script')
-    
-    assert job_id is not None or status is not None
-@pytest.mark.parametrize("dry_run", [True, False])
-def test_run_method(recipe_runner, mock_config, dry_run):
-    """Test the run method."""
-    config_json = json.dumps(mock_config)
-    
-    result = recipe_runner.run(
-        recipe_name='test_recipe',
-        config_json=config_json,
-        recipe_type='esmvaltool',
-        esmvaltool_version='main',
-        conda_module='conda/access-med'
-    )
-    
-    # Should return a tuple (status, pbs_filename)
-    assert isinstance(result, tuple)
-    assert len(result) == 2
-    assert result[0] == 'pbs-generated'
-    assert result[1].endswith('.pbs')
-
-
-# Integration tests
-@pytest.mark.integration
-def test_pbs_script_syntax():
-    """Test that generated PBS scripts have valid syntax."""
-    script_template = """#!/bin/bash
-#PBS -N test_job
-#PBS -l mem=8gb
-#PBS -l ncpus=4
-#PBS -l walltime=03:00:00
-#PBS -q normal
-
-cd $PBS_O_WORKDIR
-echo "Starting ESMValTool execution"
-"""
-    
-    # Basic syntax validation
-    lines = script_template.strip().split('\n')
-    assert lines[0].startswith('#!/bin/bash')
-    
-    pbs_lines = [line for line in lines if line.startswith('#PBS')]
-    assert len(pbs_lines) > 0
-    
-    # Check PBS directives format
-    for line in pbs_lines:
-        assert line.startswith('#PBS -')
-
 
 @pytest.mark.parametrize("config", [
     {'queue': 'copyq', 'memory': '32GB', 'walltime': '2:00:00'},

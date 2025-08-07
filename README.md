@@ -18,9 +18,9 @@ An intelligent GitHub Action for executing ESMValTool and COSIMA recipes with ad
 - **Repository integration** with automatic dependency management
 
 ### 🏗️ Simple Architecture
-- **Two core components**: Configuration Manager and Recipe Runner
+- **Single core component**: Recipe Runner for PBS script generation  
 - **Simplified workflow**: Generate PBS script → Submit via ssh-action
-- **Clean separation**: Configuration analysis separate from execution
+- **Intelligent defaults**: Automatic resource allocation based on recipe type
 - **No complex HPC integration**: Relies on ssh-action for job submission
 
 ## Installation
@@ -146,17 +146,12 @@ steps:
 
 ## Architecture
 
-The Smart Recipe Runner follows a simple two-component architecture:
-
-### Configuration Manager (`lib/config-manager.py`)
-- **Recipe analysis**: Automatically analyzes recipe complexity and resource requirements
-- **Resource allocation**: Maps recipes to appropriate PBS queue configurations
-- **Configuration generation**: Creates and maintains optimized configurations
-- **Matrix support**: Generates execution matrices for multiple recipes
+The Smart Recipe Runner uses a simple single-component architecture:
 
 ### Recipe Runner (`lib/recipe-runner.py`)
-- **PBS script generation**: Creates HPC-optimized job scripts
+- **PBS script generation**: Creates HPC-optimized job scripts with intelligent defaults
 - **Multi-platform support**: ESMValTool and COSIMA recipe execution
+- **Automatic resource allocation**: Maps recipe types to appropriate PBS configurations
 - **Environment setup**: Handles conda environments and repository cloning
 - **Output management**: Provides structured outputs for ssh-action integration
 
@@ -171,8 +166,7 @@ The Smart Recipe Runner follows a simple two-component architecture:
 smart-recipe-runner/
 ├── action.yml                 # GitHub Action definition
 ├── lib/
-│   ├── recipe-runner.py      # PBS script generation and execution logic
-│   ├── config-manager.py     # Configuration management and analysis
+│   ├── recipe-runner.py      # PBS script generation with intelligent defaults
 │   └── requirements.txt      # Python dependencies
 ├── docs/
 │   ├── architecture.md       # Architecture documentation

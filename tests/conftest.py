@@ -32,21 +32,7 @@ def temp_dir():
     yield temp_dir
 
 
-@pytest.fixture
-def config_manager():
-    """Create a SmartConfigManager instance."""
-    # Import the config manager module
-    module = _import_module_from_file("config_manager", 
-        os.path.join(os.path.dirname(__file__), '..', 'lib', 'config-manager.py'))
-    
-    if module is None:
-        pytest.skip("SmartConfigManager module not available")
-    
-    # SmartConfigManager simplified constructor
-    return module.SmartConfigManager(
-        recipe_dir='/tmp/recipes',
-        config_path='/tmp/config'
-    )
+# Config manager fixture removed - no longer used
 
 
 @pytest.fixture

@@ -242,7 +242,6 @@ jobs:
           # Check required files
           required_files=(
             "action.yml"
-            "lib/config-manager.py"
             "lib/recipe-runner.py"
             "lib/requirements.txt"
             "README.md"
