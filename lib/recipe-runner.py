@@ -36,15 +36,95 @@ class SmartRecipeRunner:
         if hpc_system == 'gadi':
             self.gadi_user = os.environ.get('GADI_USER')
             self.gadi_key = os.environ.get('GADI_KEY')
+            self.gadi_key_passphrase = os.environ.get('GADI_KEY_PASSPHRASE')
             self.scripts_dir = os.environ.get('SCRIPTS_DIR')
             
             if not all([self.gadi_user, self.gadi_key, self.scripts_dir]):
                 print("⚠️  Warning: HPC environment variables not set, will run in local mode")
                 self.hpc_system = 'local'
+            elif self.gadi_key_passphrase:
+                print("🔐 Detected password-protected SSH key")
+                if not self._setup_ssh_agent():
+                    print("⚠️  Warning: Could not setup SSH agent, falling back to local mode")
+                    self.hpc_system = 'local'
         else:
             self.gadi_user = None
             self.gadi_key = None
+            self.gadi_key_passphrase = None
             self.scripts_dir = None
+
+    def _setup_ssh_agent(self) -> bool:
+        """Setup SSH agent with password-protected key."""
+        try:
+            # Start ssh-agent and get environment variables
+            result = subprocess.run(['ssh-agent', '-s'], capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"❌ Failed to start ssh-agent: {result.stderr}")
+                return False
+            
+            # Parse SSH_AUTH_SOCK and SSH_AGENT_PID from output
+            agent_output = result.stdout
+            for line in agent_output.split('\n'):
+                if 'SSH_AUTH_SOCK=' in line:
+                    sock_line = line.replace('SSH_AUTH_SOCK=', '').replace('; export SSH_AUTH_SOCK;', '')
+                    os.environ['SSH_AUTH_SOCK'] = sock_line
+                elif 'SSH_AGENT_PID=' in line:
+                    pid_line = line.replace('SSH_AGENT_PID=', '').replace('; export SSH_AGENT_PID;', '')
+                    os.environ['SSH_AGENT_PID'] = pid_line
+            
+            # Add the key to ssh-agent using expect or similar approach
+            add_key_script = f"""
+expect << 'EOF'
+spawn ssh-add {self.gadi_key}
+expect "Enter passphrase"
+send "{self.gadi_key_passphrase}\\r"
+expect eof
+EOF
+"""
+            
+            # Try to add key with expect (if available)
+            try:
+                result = subprocess.run(['bash', '-c', add_key_script], 
+                                      capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    print("✅ Successfully added SSH key to agent")
+                    return True
+                else:
+                    print(f"❌ Failed to add key with expect: {result.stderr}")
+            except subprocess.TimeoutExpired:
+                print("❌ Timeout adding key to ssh-agent")
+            except FileNotFoundError:
+                print("❌ 'expect' command not found")
+            
+            # Fallback: try ssh-add with environment variable approach
+            try:
+                # Create a temporary script to handle the passphrase
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
+                    f.write(f"""#!/bin/bash
+export SSH_ASKPASS_REQUIRE=never
+echo '{self.gadi_key_passphrase}' | ssh-add {self.gadi_key}
+""")
+                    temp_script = f.name
+                
+                os.chmod(temp_script, 0o755)
+                result = subprocess.run(['bash', temp_script], 
+                                      capture_output=True, text=True, timeout=30)
+                os.unlink(temp_script)
+                
+                if result.returncode == 0:
+                    print("✅ Successfully added SSH key to agent (fallback method)")
+                    return True
+                else:
+                    print(f"❌ Failed to add key (fallback): {result.stderr}")
+                    
+            except Exception as e:
+                print(f"❌ Error with fallback ssh-add: {e}")
+            
+            return False
+            
+        except Exception as e:
+            print(f"❌ Error setting up SSH agent: {e}")
+            return False
 
     def check_recent_runs(self, recipe_name: str) -> bool:
         """Check if recipe has run successfully recently."""
@@ -156,27 +236,58 @@ echo "Job completed at: $(date)"
 
     def execute_ssh_command(self, command: str, timeout: int = 7200) -> tuple[int, str, str]:
         """Execute command on Gadi via SSH."""
-        ssh_cmd = [
-            'ssh',
-            '-o', 'StrictHostKeyChecking=no',
-            '-o', 'UserKnownHostsFile=/dev/null',
-            '-i', self.gadi_key,
-            f'{self.gadi_user}@{self.gadi_host}',
-            command
-        ]
+        
+        # Determine SSH command based on whether we're using ssh-agent or direct key
+        if self.gadi_key_passphrase and 'SSH_AUTH_SOCK' in os.environ:
+            # Using ssh-agent - don't specify key file explicitly
+            ssh_cmd = [
+                'ssh',
+                '-o', 'StrictHostKeyChecking=no',
+                '-o', 'UserKnownHostsFile=/dev/null',
+                '-o', 'PasswordAuthentication=no',
+                '-o', 'PubkeyAuthentication=yes',
+                f'{self.gadi_user}@{self.gadi_host}',
+                command
+            ]
+        else:
+            # Using key file directly (assumes no passphrase or handled differently)
+            ssh_cmd = [
+                'ssh',
+                '-o', 'StrictHostKeyChecking=no',
+                '-o', 'UserKnownHostsFile=/dev/null',
+                '-o', 'PasswordAuthentication=no',
+                '-o', 'PubkeyAuthentication=yes',
+                '-i', self.gadi_key,
+                f'{self.gadi_user}@{self.gadi_host}',
+                command
+            ]
         
         try:
+            # Ensure SSH agent environment is available if using it
+            env = os.environ.copy()
+            
             result = subprocess.run(
                 ssh_cmd,
                 capture_output=True,
                 text=True,
-                timeout=timeout
+                timeout=timeout,
+                env=env
             )
             return result.returncode, result.stdout, result.stderr
         except subprocess.TimeoutExpired:
             return -1, "", "SSH command timed out"
         except Exception as e:
             return -1, "", str(e)
+
+    def cleanup_ssh_agent(self):
+        """Clean up SSH agent if it was started."""
+        if 'SSH_AGENT_PID' in os.environ:
+            try:
+                pid = int(os.environ['SSH_AGENT_PID'])
+                subprocess.run(['kill', str(pid)], capture_output=True)
+                print("🧹 SSH agent cleaned up")
+            except (ValueError, subprocess.SubprocessError):
+                pass  # Agent might already be dead
 
     def submit_job(self, recipe_name: str, pbs_script: str) -> tuple[str, str, str]:
         """Submit PBS job to Gadi and return status."""
@@ -367,6 +478,7 @@ def main():
     
     args = parser.parse_args()
     
+    runner = None
     try:
         runner = SmartRecipeRunner()
         status, job_id = runner.run(
@@ -387,6 +499,10 @@ def main():
             f.write(f"status=error\n")
             f.write(f"job_submitted=false\n")
         sys.exit(1)
+    finally:
+        # Clean up SSH agent if it was started
+        if runner:
+            runner.cleanup_ssh_agent()
 
 
 if __name__ == '__main__':

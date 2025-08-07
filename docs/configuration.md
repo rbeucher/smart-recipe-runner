@@ -261,9 +261,39 @@ Set these in your GitHub repository secrets:
 ```bash
 GADI_USER         # Your HPC username
 GADI_KEY          # Your SSH private key
+GADI_KEY_PASSPHRASE   # Passphrase for password-protected SSH keys (optional)
 GADI_SCRIPTS_DIR  # Directory for script storage on HPC
 GITHUB_TOKEN      # GitHub access token (usually automatic)
 ```
+
+#### SSH Key Configuration
+
+The Smart Recipe Runner supports both regular and password-protected SSH keys:
+
+**For regular SSH keys (no passphrase):**
+```yaml
+GADI_KEY: |
+  -----BEGIN OPENSSH PRIVATE KEY-----
+  <your private key content>
+  -----END OPENSSH PRIVATE KEY-----
+```
+
+**For password-protected SSH keys:**
+```yaml
+GADI_KEY: |
+  -----BEGIN OPENSSH PRIVATE KEY-----
+  <your encrypted private key content>
+  -----END OPENSSH PRIVATE KEY-----
+GADI_KEY_PASSPHRASE: your-key-passphrase
+```
+
+When `GADI_KEY_PASSPHRASE` is provided, the runner will:
+1. Start an SSH agent
+2. Add the key to the agent using the passphrase
+3. Use the agent for all SSH connections
+4. Clean up the agent when finished
+
+**Note:** For CI/CD environments, ensure your build system has `expect` or similar tools available for automated passphrase handling.
 
 ### Optional Environment Variables
 

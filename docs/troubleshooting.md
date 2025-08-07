@@ -59,9 +59,36 @@ ssh -i ~/.ssh/your_key your_username@gadi.nci.org.au
 
 **Common SSH Key Issues**
 - Key not in OpenSSH format (convert with `ssh-keygen -p -m OpenSSH -f key`)
-- Key includes passphrase (remove or use passphrase-free key)
+- Key includes passphrase but `GADI_KEY_PASSPHRASE` not set
 - Key not added to authorized_keys on Gadi
 - Wrong username in GADI_USER secret
+
+**Password-Protected SSH Keys**
+
+If your SSH key requires a passphrase, you'll see errors like:
+```
+Error: Load key "...": incorrect passphrase supplied to decrypt private key
+Error: Permission denied (publickey)
+```
+
+**Solution:**
+1. Set the `GADI_KEY_PASSPHRASE` secret with your key passphrase
+2. Ensure your CI environment has `expect` available for automated passphrase handling
+3. Alternative: Generate a passphrase-free key specifically for CI/CD
+
+```bash
+# Generate a new passphrase-free key for CI/CD
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/gadi_ci_key -N ""
+# Add the public key to your Gadi authorized_keys
+cat ~/.ssh/gadi_ci_key.pub >> ~/.ssh/authorized_keys
+```
+
+**Debugging Password-Protected Keys:**
+Check the workflow logs for these messages:
+- `🔐 Detected password-protected SSH key` - Key passphrase detected
+- `✅ Successfully added SSH key to agent` - SSH agent setup successful
+- `❌ Failed to add key` - SSH agent setup failed
+- `⚠️ Warning: Could not setup SSH agent, falling back to local mode` - Fallback to local execution
 
 #### Debugging SSH Issues
 ```yaml
