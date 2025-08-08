@@ -10,25 +10,32 @@ An intelligent GitHub Action for executing ESMValTool and COSIMA recipes with ad
 - **PBS script generation** for HPC job submission
 - **Version-specific support** for ESMValTool (main, latest, specific versions)
 - **Intelligent resource allocation** based on recipe complexity
-- **Automatic repository cloning** and environment setup
+- **Automatic repository cloning** - pulls ESMValTool repository on Gadi and uses recipes from there
+- **Comprehensive recipe search** - searches multiple locations within the repository
+- **Error handling and diagnostics** - lists available recipes if target recipe not found
 
 ### 📓 COSIMA Recipe Support
-- **Jupyter notebook execution** for ocean analysis workflows
+- **Jupyter notebook and Python script execution** for ocean analysis workflows
 - **COSIMA-specific PBS configurations** optimized for ocean modeling
-- **Repository integration** with automatic dependency management
+- **Automatic repository cloning** - pulls COSIMA recipes repository on Gadi
+- **Flexible recipe formats** - supports .py and .ipynb files
+- **Multiple search locations** - searches notebooks/, scripts/, examples/ directories
 
-### 🏗️ Simple Architecture
+### 🏗️ Simple & Complete Architecture
 - **Single core component**: Recipe Runner for PBS script generation  
-- **Simplified workflow**: Generate PBS script → Submit via ssh-action
+- **Two execution modes**: 
+  - **Generate-only**: Create PBS script with pre-cloned repository references
+  - **Full execution**: Clone repositories on Gadi → Generate PBS script → Submit job
+- **Internet-safe design**: Repository cloning happens on login nodes (with internet), jobs run on compute nodes (without internet)
 - **Intelligent defaults**: Automatic resource allocation based on recipe type
-- **No complex HPC integration**: Relies on ssh-action for job submission
+- **Built-in HPC integration**: Direct SSH connection and job submission to Gadi
 
 ## Installation
 
 ### Prerequisites
 - Python 3.8 or higher  
 - Git
-- SSH access to HPC system (configured via ssh-action)
+- For job submission: SSH access to Gadi HPC system
 
 ### For GitHub Actions
 Add this action to your workflow file (`.github/workflows/`):
@@ -76,9 +83,9 @@ jobs:
 
 ## Quick Start
 
-### ESMValTool Recipe
+### ESMValTool Recipe (Generate PBS only)
 ```yaml
-- name: Test ESMValTool Recipe
+- name: Generate PBS Script
   uses: rbeucher/smart-recipe-runner@main
   with:
     recipe_type: 'esmvaltool'
@@ -87,15 +94,73 @@ jobs:
     esmvaltool_version: 'main'
 ```
 
+### ESMValTool Recipe (Generate and Submit to Gadi)
+```yaml
+### ESMValTool Recipe (Generate and Submit to Gadi)
+```yaml
+- name: Run ESMValTool Recipe on Gadi
+  uses: rbeucher/smart-recipe-runner@main
+  with:
+    recipe_type: 'esmvaltool'
+    recipe_name: 'recipe_python.yml'
+    config: '{"rootpath": {"default": "/g/data/ks32/ESMValTool"}}'
+    esmvaltool_version: 'main'
+    submit_job: 'true'
+    gadi_username: ${{ secrets.GADI_USERNAME }}
+    gadi_ssh_key: ${{ secrets.GADI_SSH_KEY }}
+    # Optional: Add if SSH key is password-protected
+    gadi_ssh_passphrase: ${{ secrets.GADI_SSH_PASSPHRASE }}
+```
+
 ### COSIMA Recipe
 ```yaml
-- name: Test COSIMA Recipe
+- name: Run COSIMA Recipe on Gadi
   uses: rbeucher/smart-recipe-runner@main
   with:
     recipe_type: 'cosima'
     recipe_name: 'ocean_analysis'
     repository_url: 'https://github.com/COSIMA/cosima-recipes'
+    submit_job: 'true'
+    gadi_username: ${{ secrets.GADI_USERNAME }}
+    gadi_ssh_key: ${{ secrets.GADI_SSH_KEY }}
+    # Optional: Add if SSH key is password-protected
+    gadi_ssh_passphrase: ${{ secrets.GADI_SSH_PASSPHRASE }}
 ```
+  with:
+    recipe_type: 'cosima'
+    recipe_name: 'ocean_analysis'
+    repository_url: 'https://github.com/COSIMA/cosima-recipes'
+    submit_job: 'true'
+    gadi_username: ${{ secrets.GADI_USERNAME }}
+    gadi_ssh_key: ${{ secrets.GADI_SSH_KEY }}
+```
+
+### Recipe Repository Handling
+
+The action automatically handles repository cloning and recipe discovery on Gadi:
+
+**Repository Cloning Strategy:**
+- **Login node cloning**: Repositories are cloned/updated on Gadi login nodes (which have internet access)
+- **Compute node execution**: PBS jobs run on compute nodes using pre-cloned repositories (no internet needed)
+- **This design ensures compatibility with all PBS queues**, even those without internet access
+
+**For ESMValTool recipes:**
+- Clones/updates the ESMValTool repository to `ESMValTool-ci/` on Gadi login node
+- PBS script uses pre-cloned repository at `/scratch/$USER/../ESMValTool-ci/`
+- Searches for recipes in multiple locations:
+  - `esmvaltool/recipes/{recipe_name}.yml`
+  - `esmvaltool/recipes/examples/{recipe_name}.yml`
+  - `esmvaltool/recipes/*/{recipe_name}.yml`
+- Lists available recipes if the specified recipe is not found
+
+**For COSIMA recipes:**
+- Clones/updates the COSIMA recipes repository to `COSIMA-recipes-ci/` on Gadi login node
+- PBS script uses pre-cloned repository at `/scratch/$USER/../COSIMA-recipes-ci/`
+- Searches for recipes in multiple locations and formats:
+  - Root directory: `{recipe_name}`, `{recipe_name}.py`, `{recipe_name}.ipynb`
+  - `notebooks/` directory: `{recipe_name}`, `{recipe_name}.py`, `{recipe_name}.ipynb`
+  - `scripts/` and `examples/` directories
+- Supports both Python scripts (`.py`) and Jupyter notebooks (`.ipynb`)
 
 ## Input Parameters
 
@@ -107,13 +172,20 @@ jobs:
 | `esmvaltool_version` | ESMValTool version (for esmvaltool recipes) | No | `main` |
 | `conda_module` | Conda module to load | No | `conda/access-med` |
 | `repository_url` | Repository URL (for cloning custom repos) | No | - |
+| `submit_job` | Submit job to Gadi (`true`/`false`) | No | `false` |
+| `gadi_username` | Gadi username for SSH connection | No | - |
+| `gadi_ssh_key` | SSH private key for Gadi | No | - |
+| `gadi_ssh_passphrase` | Passphrase for SSH private key (if password-protected) | No | - |
+| `scripts_dir` | Directory on Gadi for scripts | No | `/scratch/$USER/esmvaltool-ci` |
 
 ## Outputs
 
 | Output | Description |
 |--------|-------------|
-| `status` | Execution status (`pbs-generated`) |
+| `status` | Execution status (`pbs-generated`, `job-submitted`, or `error`) |
 | `pbs_filename` | Generated PBS script filename |
+| `job_id` | PBS job ID (if submitted - check SSH output) | 
+| `gadi_path` | Path to script on Gadi (if submitted) |
 
 ## Advanced Usage
 
@@ -149,16 +221,19 @@ steps:
 The Smart Recipe Runner uses a simple single-component architecture:
 
 ### Recipe Runner (`lib/recipe-runner.py`)
-- **PBS script generation**: Creates HPC-optimized job scripts with intelligent defaults
+- **PBS script generation**: Creates HPC-optimized job scripts that reference pre-cloned repositories
 - **Multi-platform support**: ESMValTool and COSIMA recipe execution
 - **Automatic resource allocation**: Maps recipe types to appropriate PBS configurations
-- **Environment setup**: Handles conda environments and repository cloning
-- **Output management**: Provides structured outputs for ssh-action integration
+- **Internet-safe design**: PBS scripts expect repositories to be pre-cloned on login nodes
+- **SSH integration**: Handles repository cloning on login nodes and job submission to compute nodes
+- **Output management**: Provides job IDs and monitoring information
 
 ### Execution Flow
 1. **Configuration Analysis**: Analyze recipe requirements and generate resource configuration
-2. **PBS Script Generation**: Create optimized PBS script with proper resource allocation
-3. **Output Delivery**: Provide PBS script for ssh-action to upload and submit
+2. **PBS Script Generation**: Create optimized PBS script that references pre-cloned repositories
+3. **Repository Setup** (if submitting): SSH to Gadi login node and clone/update repositories (with internet access)
+4. **Job Submission** (if submitting): Upload PBS script and submit to compute nodes (no internet needed)
+5. **Output Delivery**: Provide job ID and monitoring information
 
 ## Directory Structure
 
@@ -198,13 +273,45 @@ pytest tests/ --cov=lib --cov-report=html
 
 ## Configuration Examples
 
-### Complete ESMValTool Workflow
+### Complete ESMValTool Workflow (Generate + Submit)
 ```yaml
-name: ESMValTool Recipe Testing
+name: ESMValTool Recipe Execution
 on: [push, pull_request]
 
 jobs:
-  test-recipe:
+  run-recipe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run ESMValTool Recipe on Gadi
+        id: recipe
+        uses: rbeucher/smart-recipe-runner@main
+        with:
+          recipe_type: 'esmvaltool'
+          recipe_name: 'recipe_python.yml'
+          esmvaltool_version: 'main'
+          config: '{"rootpath": {"default": "/g/data/ks32/ESMValTool"}}'
+          submit_job: 'true'
+          gadi_username: ${{ secrets.GADI_USERNAME }}
+          gadi_ssh_key: ${{ secrets.GADI_SSH_KEY }}
+          # Optional: Add if SSH key is password-protected
+          gadi_ssh_passphrase: ${{ secrets.GADI_SSH_PASSPHRASE }}
+      
+      - name: Show Results
+        run: |
+          echo "Status: ${{ steps.recipe.outputs.status }}"
+          echo "PBS file on Gadi: ${{ steps.recipe.outputs.gadi_path }}"
+          echo "Check job submission output above for Job ID"
+```
+
+### PBS Generation Only (for external submission)
+```yaml
+name: Generate PBS Scripts
+on: [push, pull_request]
+
+jobs:
+  generate-pbs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -218,8 +325,8 @@ jobs:
           esmvaltool_version: 'main'
           config: '{"rootpath": {"default": "/g/data/ks32/ESMValTool"}}'
       
-      - name: Submit to HPC
-        uses: ACCESS-NRI/ssh-action@v1
+      - name: Submit to HPC (using external ssh-action)
+        uses: appleboy/ssh-action@v1
         with:
           host: 'gadi.nci.org.au'
           username: ${{ secrets.GADI_USERNAME }}

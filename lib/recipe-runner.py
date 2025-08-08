@@ -22,8 +22,7 @@ class SmartRecipeRunner:
         print("🎯 SmartRecipeRunner: Configured for HPC PBS script generation")
 
     def generate_esmvaltool_pbs_script(self, recipe_name: str, config: Dict, 
-                                      esmvaltool_version: str, conda_module: str, 
-                                      repository_url: str = None) -> str:
+                                      esmvaltool_version: str, conda_module: str) -> str:
         """Generate PBS script for ESMValTool recipe execution on Gadi."""
         
         # Determine config file path based on version
@@ -34,24 +33,6 @@ class SmartRecipeRunner:
         # Build max_parallel_tasks parameter if specified
         max_parallel_tasks = config.get('max_parallel_tasks')
         parallel_tasks_param = f" --max_parallel_tasks={max_parallel_tasks}" if max_parallel_tasks else ""
-        
-        # Set up repository cloning section - always clone on Gadi
-        repo_to_clone = repository_url or 'https://github.com/ESMValGroup/ESMValTool'
-        git_clone_section = f"""
-# Clone repository if needed
-cd $SCRIPTS_DIR/../
-if [ ! -d "ESMValTool-ci" ]; then
-    git clone {repo_to_clone} ESMValTool-ci
-else
-    cd ESMValTool-ci
-    git pull origin main
-    cd ..
-fi
-
-# Set paths for cloned repository
-ESMVAL_PATH="$SCRIPTS_DIR/../ESMValTool-ci"
-RECIPES_PATH="esmvaltool/recipes"
-"""
         
         pbs_script = f"""#!/bin/bash -l 
 #PBS -S /bin/bash
@@ -88,24 +69,62 @@ echo "Version: {esmvaltool_version}"
 echo "Resource group: {config['group']}"
 echo "Job started at: $(date)"
 echo "Config file: $ESMVAL_USER_CONFIG"
-{git_clone_section}
 
-# Check if recipe exists
-recipe_file="$ESMVAL_PATH/$RECIPES_PATH/{recipe_name}.yml"
-if [ ! -f "$recipe_file" ]; then
-  # Try examples directory
-  recipe_file="$ESMVAL_PATH/$RECIPES_PATH/examples/{recipe_name}.yml"
+# Set base directories - repository should already be cloned by the action
+SCRIPTS_DIR="${{PBS_O_WORKDIR:-/scratch/${{USER}}/esmvaltool-ci}}"
+ESMVAL_PATH="$SCRIPTS_DIR/../ESMValTool-ci"
+RECIPES_PATH="esmvaltool/recipes"
+
+echo "📁 Using pre-cloned ESMValTool repository..."
+echo "Scripts directory: $SCRIPTS_DIR"
+echo "ESMValTool path: $ESMVAL_PATH"
+echo "Recipes path: $ESMVAL_PATH/$RECIPES_PATH"
+
+# Verify repository exists (should have been cloned by the action)
+if [ ! -d "$ESMVAL_PATH" ]; then
+    echo "❌ ERROR: ESMValTool repository not found at $ESMVAL_PATH"
+    echo "The repository should have been cloned before job submission."
+    echo "Please check the action configuration and ensure repository cloning succeeded."
+    exit 1
 fi
 
-if [ ! -f "$recipe_file" ]; then
-  echo "ERROR: Recipe {recipe_name}.yml not found"
-  echo "Searched in:"
-  echo "  $ESMVAL_PATH/$RECIPES_PATH/{recipe_name}.yml"
-  echo "  $ESMVAL_PATH/$RECIPES_PATH/examples/{recipe_name}.yml"
-  exit 1
+# Check if recipe exists - search in multiple locations
+echo "🔍 Searching for recipe: {recipe_name}"
+
+# Define possible recipe locations
+recipe_locations=(
+    "$ESMVAL_PATH/$RECIPES_PATH/{recipe_name}"
+    "$ESMVAL_PATH/$RECIPES_PATH/{recipe_name}.yml"
+    "$ESMVAL_PATH/$RECIPES_PATH/examples/{recipe_name}"
+    "$ESMVAL_PATH/$RECIPES_PATH/examples/{recipe_name}.yml"
+    "$ESMVAL_PATH/$RECIPES_PATH/*/recipe_{recipe_name}.yml"
+)
+
+recipe_file=""
+for location in "${{recipe_locations[@]}}"; do
+    if [ -f "$location" ]; then
+        recipe_file="$location"
+        echo "✅ Found recipe at: $recipe_file"
+        break
+    fi
+done
+
+if [ -z "$recipe_file" ]; then
+    echo "❌ ERROR: Recipe '{recipe_name}' not found in ESMValTool repository"
+    echo "Searched in the following locations:"
+    for location in "${{recipe_locations[@]}}"; do
+        echo "  - $location"
+    done
+    echo ""
+    echo "Available recipes in main directory:"
+    ls -la "$ESMVAL_PATH/$RECIPES_PATH/"*.yml 2>/dev/null || echo "  No .yml files found"
+    echo ""
+    echo "Available recipes in examples directory:"
+    ls -la "$ESMVAL_PATH/$RECIPES_PATH/examples/"*.yml 2>/dev/null || echo "  No .yml files found"
+    exit 1
 fi
 
-echo "Running recipe: $recipe_file"
+echo "🚀 Running recipe: $recipe_file"
 
 # Run ESMValTool with version-specific configuration
 esmvaltool run --config_file "$ESMVAL_USER_CONFIG" "$recipe_file"{parallel_tasks_param}
@@ -114,25 +133,8 @@ echo "Job completed at: $(date)"
 """
         return pbs_script
 
-    def generate_cosima_pbs_script(self, recipe_name: str, config: Dict,
-                                  repository_url: str = None) -> str:
+    def generate_cosima_pbs_script(self, recipe_name: str, config: Dict) -> str:
         """Generate PBS script for COSIMA recipe execution on Gadi."""
-        
-        # COSIMA recipes use a different setup
-        git_clone_section = f"""
-# Clone COSIMA repository if needed
-cd $SCRIPTS_DIR/../
-if [ ! -d "COSIMA-recipes-ci" ]; then
-    git clone {repository_url or 'https://github.com/COSIMA/cosima-recipes'} COSIMA-recipes-ci
-else
-    cd COSIMA-recipes-ci
-    git pull origin main
-    cd ..
-fi
-
-# Set paths for COSIMA recipes
-COSIMA_PATH="$SCRIPTS_DIR/../COSIMA-recipes-ci"
-"""
         
         pbs_script = f"""#!/bin/bash -l 
 #PBS -S /bin/bash
@@ -159,30 +161,66 @@ echo "=== COSIMA Recipe Execution ==="
 echo "Recipe: {recipe_name}"
 echo "Resource group: {config['group']}"
 echo "Job started at: $(date)"
-{git_clone_section}
 
-# Check if recipe exists
-recipe_file="$COSIMA_PATH/{recipe_name}"
-if [ ! -f "$recipe_file" ]; then
-  # Try with .py extension
-  recipe_file="$COSIMA_PATH/{recipe_name}.py"
+# Set base directories - repository should already be cloned by the action
+SCRIPTS_DIR="${{PBS_O_WORKDIR:-/scratch/${{USER}}/cosima-ci}}"
+COSIMA_PATH="$SCRIPTS_DIR/../COSIMA-recipes-ci"
+
+echo "📁 Using pre-cloned COSIMA repository..."
+echo "Scripts directory: $SCRIPTS_DIR"
+echo "COSIMA path: $COSIMA_PATH"
+
+# Verify repository exists (should have been cloned by the action)
+if [ ! -d "$COSIMA_PATH" ]; then
+    echo "❌ ERROR: COSIMA repository not found at $COSIMA_PATH"
+    echo "The repository should have been cloned before job submission."
+    echo "Please check the action configuration and ensure repository cloning succeeded."
+    exit 1
 fi
 
-if [ ! -f "$recipe_file" ]; then
-  # Try in notebooks directory
-  recipe_file="$COSIMA_PATH/notebooks/{recipe_name}"
+# Check if recipe exists - search in multiple locations
+echo "🔍 Searching for COSIMA recipe: {recipe_name}"
+
+# Define possible recipe locations
+recipe_locations=(
+    "$COSIMA_PATH/{recipe_name}"
+    "$COSIMA_PATH/{recipe_name}.py"
+    "$COSIMA_PATH/{recipe_name}.ipynb"
+    "$COSIMA_PATH/notebooks/{recipe_name}"
+    "$COSIMA_PATH/notebooks/{recipe_name}.py"
+    "$COSIMA_PATH/notebooks/{recipe_name}.ipynb"
+    "$COSIMA_PATH/scripts/{recipe_name}"
+    "$COSIMA_PATH/scripts/{recipe_name}.py"
+    "$COSIMA_PATH/examples/{recipe_name}"
+    "$COSIMA_PATH/examples/{recipe_name}.py"
+    "$COSIMA_PATH/examples/{recipe_name}.ipynb"
+)
+
+recipe_file=""
+for location in "${{recipe_locations[@]}}"; do
+    if [ -f "$location" ]; then
+        recipe_file="$location"
+        echo "✅ Found recipe at: $recipe_file"
+        break
+    fi
+done
+
+if [ -z "$recipe_file" ]; then
+    echo "❌ ERROR: Recipe '{recipe_name}' not found in COSIMA repository"
+    echo "Searched in the following locations:"
+    for location in "${{recipe_locations[@]}}"; do
+        echo "  - $location"
+    done
+    echo ""
+    echo "Available Python scripts:"
+    find "$COSIMA_PATH" -name "*.py" -type f 2>/dev/null | head -10 || echo "  No .py files found"
+    echo ""
+    echo "Available Jupyter notebooks:"
+    find "$COSIMA_PATH" -name "*.ipynb" -type f 2>/dev/null | head -10 || echo "  No .ipynb files found"
+    exit 1
 fi
 
-if [ ! -f "$recipe_file" ]; then
-  echo "ERROR: Recipe {recipe_name} not found"
-  echo "Searched in:"
-  echo "  $COSIMA_PATH/{recipe_name}"
-  echo "  $COSIMA_PATH/{recipe_name}.py"
-  echo "  $COSIMA_PATH/notebooks/{recipe_name}"
-  exit 1
-fi
-
-echo "Running recipe: $recipe_file"
+echo "🚀 Running recipe: $recipe_file"
 
 # Execute COSIMA recipe (could be Python script or Jupyter notebook)
 if [[ "$recipe_file" == *.py ]]; then

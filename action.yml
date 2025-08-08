@@ -1,5 +1,5 @@
 name: 'Smart Recipe Runner'
-description: 'Generate PBS scripts for ESMValTool and COSIMA recipes with intelligent resource allocation'
+description: 'Generate and optionally submit PBS scripts for ESMValTool and COSIMA recipes with intelligent resource allocation. Supports both generate-only mode and full execution with direct Gadi job submission.'
 author: 'ESMValTool Community'
 
 inputs:
@@ -24,14 +24,37 @@ inputs:
   repository_url:
     description: 'Custom repository URL for cloning'
     required: false
+  gadi_username:
+    description: 'Gadi username for SSH connection'
+    required: true
+  gadi_ssh_key:
+    description: 'SSH private key for Gadi connection'
+    required: false
+  gadi_ssh_passphrase:
+    description: 'Passphrase for SSH private key (if password-protected)'
+    required: false
+  submit_job:
+    description: 'Whether to submit the job to Gadi (true/false)'
+    required: false
+    default: 'false'
+  scripts_dir:
+    description: 'Directory on Gadi to upload scripts'
+    required: false
+    default: '/scratch/$USER/esmvaltool-ci'
 
 outputs:
   status:
-    description: 'Generation status (pbs-generated or error)'
-    value: ${{ steps.generate-pbs.outputs.status }}
+    description: 'Generation status (pbs-generated, job-submitted, or error)'
+    value: ${{ steps.set-job-outputs.outputs.status || steps.generate-pbs.outputs.status }}
   pbs_filename:
     description: 'Generated PBS script filename'
     value: ${{ steps.generate-pbs.outputs.pbs_filename }}
+  job_id:
+    description: 'PBS job ID (if submitted)'
+    value: ${{ steps.set-job-outputs.outputs.job_id }}
+  gadi_path:
+    description: 'Path to script on Gadi (if submitted)'
+    value: ${{ steps.set-job-outputs.outputs.gadi_path }}
 
 runs:
   using: 'composite'
@@ -177,6 +200,159 @@ runs:
           exit 1
         fi
 
+    - name: Read PBS Content for Upload
+      id: read-pbs
+      if: inputs.submit_job == 'true' && inputs.gadi_username != '' && inputs.gadi_ssh_key != ''
+      shell: bash
+      run: |
+        if [[ -f "${{ steps.generate-pbs.outputs.pbs_filename }}" ]]; then
+          echo "📄 Reading PBS content for upload to Gadi..."
+          # Create a base64 encoded version for safe transfer
+          PBS_B64=$(base64 -w 0 "${{ steps.generate-pbs.outputs.pbs_filename }}")
+          echo "pbs_content_b64=$PBS_B64" >> $GITHUB_OUTPUT
+          echo "✅ PBS content prepared for upload"
+        else
+          echo "❌ PBS file not found: ${{ steps.generate-pbs.outputs.pbs_filename }}"
+          exit 1
+        fi
+
+    - name: Clone Repository and Submit Job to Gadi
+      id: submit-job
+      if: inputs.submit_job == 'true' && inputs.gadi_username != '' && inputs.gadi_ssh_key != ''
+      uses: appleboy/ssh-action@v1
+      with:
+        host: 'gadi.nci.org.au'
+        username: ${{ inputs.gadi_username }}
+        key: ${{ inputs.gadi_ssh_key }}
+        passphrase: ${{ inputs.gadi_ssh_passphrase }}
+        script: |
+          set -e
+          
+          echo "🚀 Preparing repository and submitting job to Gadi..."
+          
+          PBS_FILENAME="${{ steps.generate-pbs.outputs.pbs_filename }}"
+          SCRIPTS_DIR="${{ inputs.scripts_dir }}"
+          RECIPE_NAME="${{ inputs.recipe_name }}"
+          RECIPE_TYPE="${{ inputs.recipe_type }}"
+          REPOSITORY_URL="${{ inputs.repository_url }}"
+          
+          # Decode the PBS content
+          echo "${{ steps.read-pbs.outputs.pbs_content_b64 }}" | base64 -d > /tmp/pbs_content.pbs
+          
+          echo "📁 Creating scripts directory: $SCRIPTS_DIR"
+          mkdir -p "$SCRIPTS_DIR"
+          
+          # Clone/update repository before submitting job
+          echo "📦 Setting up repository on Gadi login node (with internet access)..."
+          cd "$SCRIPTS_DIR/../"
+          
+          if [[ "$RECIPE_TYPE" == "cosima" ]]; then
+            REPO_URL="${REPOSITORY_URL:-https://github.com/COSIMA/cosima-recipes}"
+            REPO_DIR="COSIMA-recipes-ci"
+            echo "🔄 Setting up COSIMA repository: $REPO_URL"
+          else
+            REPO_URL="${REPOSITORY_URL:-https://github.com/ESMValGroup/ESMValTool}"
+            REPO_DIR="ESMValTool-ci"
+            echo "🔄 Setting up ESMValTool repository: $REPO_URL"
+          fi
+          
+          if [ ! -d "$REPO_DIR" ]; then
+            echo "� Cloning repository: $REPO_URL"
+            git clone "$REPO_URL" "$REPO_DIR"
+            if [ $? -eq 0 ]; then
+              echo "✅ Repository cloned successfully"
+            else
+              echo "❌ Failed to clone repository"
+              exit 1
+            fi
+          else
+            echo "🔄 Repository exists, updating..."
+            cd "$REPO_DIR"
+            git fetch origin
+            git pull origin main
+            if [ $? -eq 0 ]; then
+              echo "✅ Repository updated successfully"
+            else
+              echo "⚠️  Warning: Failed to update repository, continuing with existing version"
+            fi
+            cd ..
+          fi
+          
+          echo "📂 Repository setup complete: $(pwd)/$REPO_DIR"
+          
+          echo "�📤 Creating PBS script on Gadi: $SCRIPTS_DIR/$PBS_FILENAME"
+          cp /tmp/pbs_content.pbs "$SCRIPTS_DIR/$PBS_FILENAME"
+          chmod +x "$SCRIPTS_DIR/$PBS_FILENAME"
+          
+          echo "📋 Submitting job with qsub..."
+          cd "$SCRIPTS_DIR"
+          JOB_OUTPUT=$(qsub "$PBS_FILENAME")
+          
+          # Extract job ID from qsub output
+          JOB_ID=$(echo "$JOB_OUTPUT" | grep -oE '[0-9]+\.[a-zA-Z0-9]+' | head -1)
+          
+          echo "✅ Job submitted successfully!"
+          echo "Job ID: $JOB_ID"
+          echo "PBS file: $SCRIPTS_DIR/$PBS_FILENAME"
+          echo "Recipe: $RECIPE_NAME"
+          echo "Repository: $(pwd)/../$REPO_DIR"
+          
+          # Write a simple status file for reference
+          echo "job_id=$JOB_ID" > "$SCRIPTS_DIR/.job_status_$RECIPE_NAME.txt"
+          echo "gadi_path=$SCRIPTS_DIR/$PBS_FILENAME" >> "$SCRIPTS_DIR/.job_status_$RECIPE_NAME.txt"
+          echo "repository_path=$(pwd)/../$REPO_DIR" >> "$SCRIPTS_DIR/.job_status_$RECIPE_NAME.txt"
+          echo "status=job-submitted" >> "$SCRIPTS_DIR/.job_status_$RECIPE_NAME.txt"
+          echo "submission_time=$(date)" >> "$SCRIPTS_DIR/.job_status_$RECIPE_NAME.txt"
+          
+          echo "📋 Job submission completed"
+          echo "Monitor with: qstat $JOB_ID"
+
+    - name: Set Job Outputs
+      id: set-job-outputs
+      if: inputs.submit_job == 'true' && inputs.gadi_username != '' && inputs.gadi_ssh_key != ''
+      shell: bash
+      run: |
+        # Since we can't easily get outputs from SSH action, we'll construct them
+        # from the information we have. The actual job ID will be shown in the SSH action output.
+        GADI_PATH="${{ inputs.scripts_dir }}/${{ steps.generate-pbs.outputs.pbs_filename }}"
+        
+        echo "job_id=check-ssh-output" >> $GITHUB_OUTPUT
+        echo "gadi_path=$GADI_PATH" >> $GITHUB_OUTPUT
+        echo "status=job-submitted" >> $GITHUB_OUTPUT
+        
+        echo "📋 Job information:"
+        echo "Status: job-submitted"
+        echo "Gadi Path: $GADI_PATH"
+        echo "Note: Check the SSH action output above for the actual Job ID"
+
+    - name: Display Final Results
+      shell: bash
+      run: |
+        echo "🎯 Smart Recipe Runner - Final Results"
+        echo "=================================="
+        
+        if [[ "${{ inputs.submit_job }}" == "true" ]]; then
+          if [[ -n "${{ inputs.gadi_username }}" && -n "${{ inputs.gadi_ssh_key }}" ]]; then
+            echo "📋 Job Submission Results:"
+            echo "Status: ${{ steps.set-job-outputs.outputs.status || 'job-submitted' }}"
+            echo "Gadi Path: ${{ steps.set-job-outputs.outputs.gadi_path }}"
+            echo ""
+            echo "✅ Job has been submitted to Gadi HPC!"
+            echo "🔍 Check the SSH action output above for the Job ID"
+            echo "🔍 Monitor job status with: qstat [JOB_ID]"
+          else
+            echo "⚠️  submit_job=true but missing gadi_username or gadi_ssh_key"
+            echo "📋 PBS script generated but not submitted"
+            echo "PBS file: ${{ steps.generate-pbs.outputs.pbs_filename }}"
+          fi
+        else
+          echo "📋 PBS Script Generation Mode:"
+          echo "Status: ${{ steps.generate-pbs.outputs.status }}"
+          echo "PBS file: ${{ steps.generate-pbs.outputs.pbs_filename }}"
+          echo ""
+          echo "💡 To submit to Gadi, set submit_job=true and provide SSH credentials"
+        fi
+        
 branding:
   icon: 'play-circle'
   color: 'blue'
