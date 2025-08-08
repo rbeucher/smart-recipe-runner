@@ -1,9 +1,15 @@
-name: COSIMA Recipe Test
+name: COSIMA Single Recipe Test
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      recipe_name:
+        description: 'Recipe name to run'
+        required: true
+        default: 'ocean_analysis.py'
 
 jobs:
   cosima-recipe:
@@ -16,16 +22,16 @@ jobs:
         uses: rbeucher/smart-recipe-runner@main
         with:
           recipe_type: 'cosima'
-          recipe_name: 'ocean_analysis.py'
+          recipe_name: ${{ github.event.inputs.recipe_name || 'ocean_analysis.py' }}
           repository_url: 'https://github.com/COSIMA/cosima-recipes'
           gadi_username: ${{ secrets.GADI_USERNAME }}
           gadi_ssh_key: ${{ secrets.GADI_SSH_KEY }}
           gadi_ssh_passphrase: ${{ secrets.GADI_SSH_PASSPHRASE }}
           scripts_dir: ${{ secrets.GADI_SCRIPTS_DIR }}
+          project: 'tm70'
       
       - name: Monitor Job
         run: |
           echo "COSIMA job submitted!"
           echo "Job ID: ${{ steps.cosima.outputs.job_id }}"
           echo "Monitor with: qstat ${{ steps.cosima.outputs.job_id }}"
-          echo "Logs will be available at: /g/data/kj13/admin/COSIMA/logs/"

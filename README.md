@@ -105,6 +105,7 @@ jobs:
     recipe_name: 'recipe_python.yml'
     config: '{"rootpath": {"default": "/g/data/ks32/ESMValTool"}}'
     esmvaltool_version: 'main'
+    project: 'kj13'  # Specify your PBS project
     submit_job: 'true'
     gadi_username: ${{ secrets.GADI_USERNAME }}
     gadi_ssh_key: ${{ secrets.GADI_SSH_KEY }}
@@ -171,6 +172,7 @@ The action automatically handles repository cloning and recipe discovery on Gadi
 | `config` | Configuration (JSON string) | No | `{}` |
 | `esmvaltool_version` | ESMValTool version (for esmvaltool recipes) | No | `main` |
 | `conda_module` | Conda module to load | No | `conda/analysis3` |
+| `project` | PBS project code (e.g., w40, kj13, etc.) | No | `w40` |
 | `repository_url` | Repository URL (for cloning custom repos) | No | - |
 | `submit_job` | Submit job to Gadi (`true`/`false`) | No | `false` |
 | `gadi_username` | Gadi username for SSH connection | No | - |

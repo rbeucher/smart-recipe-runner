@@ -62,12 +62,34 @@ def test_generate_pbs_script(recipe_runner, mock_config, monkeypatch):
         config=mock_config,
         recipe_type='esmvaltool',
         esmvaltool_version='main',
-        conda_module='conda/analysis3'
+        conda_module='conda/analysis3',
+        project='w40'
     )
     
     assert isinstance(script, str)
     assert '#PBS' in script
     assert 'test_recipe' in script
+    assert '#PBS -P w40' in script
+
+
+@pytest.mark.parametrize("project", ['w40', 'kj13', 'fs38', 'oi10'])
+def test_project_parameter(recipe_runner, mock_config, project):
+    """Test that the project parameter is correctly set in PBS scripts."""
+    
+    if not hasattr(recipe_runner, 'generate_pbs_script'):
+        pytest.skip("SmartRecipeRunner.generate_pbs_script not available")
+    
+    script = recipe_runner.generate_pbs_script(
+        recipe_name='test_recipe',
+        config=mock_config,
+        recipe_type='esmvaltool',
+        esmvaltool_version='main',
+        conda_module='conda/analysis3',
+        project=project
+    )
+    
+    assert isinstance(script, str)
+    assert f'#PBS -P {project}' in script
 
 @pytest.mark.parametrize("config", [
     {'queue': 'copyq', 'memory': '32GB', 'walltime': '2:00:00'},
@@ -110,7 +132,8 @@ def test_full_workflow_dry_run(recipe_runner):
         config_json=config_json,
         recipe_type='esmvaltool',
         esmvaltool_version='main',
-        conda_module='conda/analysis3'
+        conda_module='conda/analysis3',
+        project='w40'
     )
     
     # Should complete successfully 

@@ -22,7 +22,7 @@ class SmartRecipeRunner:
         print("🎯 SmartRecipeRunner: Configured for HPC PBS script generation")
 
     def generate_esmvaltool_pbs_script(self, recipe_name: str, config: Dict, 
-                                      esmvaltool_version: str, conda_module: str) -> str:
+                                      esmvaltool_version: str, conda_module: str, project: str = 'w40') -> str:
         """Generate PBS script for ESMValTool recipe execution on Gadi."""
         
         # Determine config file path based on version
@@ -36,7 +36,7 @@ class SmartRecipeRunner:
         
         pbs_script = f"""#!/bin/bash -l 
 #PBS -S /bin/bash
-#PBS -P w40
+#PBS -P {project}
 #PBS -l storage=gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/xp65+gdata/al33+gdata/rt52+gdata/zz93+gdata/cb20
 #PBS -N {recipe_name}-{esmvaltool_version}
 #PBS -W block=true
@@ -133,12 +133,12 @@ echo "Job completed at: $(date)"
 """
         return pbs_script
 
-    def generate_cosima_pbs_script(self, recipe_name: str, config: Dict) -> str:
+    def generate_cosima_pbs_script(self, recipe_name: str, config: Dict, project: str = 'w40') -> str:
         """Generate PBS script for COSIMA recipe execution on Gadi."""
         
         pbs_script = f"""#!/bin/bash -l 
 #PBS -S /bin/bash
-#PBS -P w40
+#PBS -P {project}
 #PBS -l storage=gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/v45+gdata/hh5
 #PBS -N {recipe_name}-cosima
 #PBS -W block=true
@@ -240,20 +240,22 @@ echo "Job completed at: $(date)"
                            recipe_type: str = 'esmvaltool', 
                            esmvaltool_version: str = 'main', 
                            conda_module: str = 'conda/analysis3',
+                           project: str = 'w40',
                            repository_url: str = None) -> str:
         """Generate PBS script based on recipe type."""
         
         if recipe_type.lower() == 'cosima':
-            return self.generate_cosima_pbs_script(recipe_name, config, repository_url)
+            return self.generate_cosima_pbs_script(recipe_name, config, project)
         else:
             # Default to ESMValTool
             return self.generate_esmvaltool_pbs_script(recipe_name, config, esmvaltool_version, 
-                                                      conda_module, repository_url)
+                                                      conda_module, project)
 
     def run(self, recipe_name: str, config_json: str = '{}', 
             recipe_type: str = 'esmvaltool',
             esmvaltool_version: str = 'main', 
             conda_module: str = 'conda/analysis3',
+            project: str = 'w40',
             repository_url: str = None) -> tuple[str, str]:
         """
         Generate PBS script for HPC execution via ssh-action.
@@ -264,6 +266,7 @@ echo "Job completed at: $(date)"
             recipe_type: Type of recipe ('esmvaltool' or 'cosima')
             esmvaltool_version: ESMValTool version (for esmvaltool recipes)
             conda_module: Conda module to load
+            project: PBS project code (e.g., w40, kj13, etc.)
             repository_url: Repository URL to clone (optional)
             
         Returns:
@@ -299,6 +302,7 @@ echo "Job completed at: $(date)"
         print(f"  Memory: {config['memory']}")
         print(f"  Walltime: {config['walltime']}")
         print(f"  Group: {config['group']}")
+        print(f"  Project: {project}")
         if repository_url:
             print(f"  Repository: {repository_url}")
         
@@ -309,6 +313,7 @@ echo "Job completed at: $(date)"
             recipe_type=recipe_type,
             esmvaltool_version=esmvaltool_version,
             conda_module=conda_module,
+            project=project,
             repository_url=repository_url
         )
         
@@ -332,6 +337,7 @@ def main():
                        help='Type of recipe to run')
     parser.add_argument('--esmvaltool-version', default='main', help='ESMValTool version')
     parser.add_argument('--conda-module', default='conda/analysis3', help='Conda module')
+    parser.add_argument('--project', default='w40', help='PBS project code (e.g., w40, kj13, etc.)')
     parser.add_argument('--repository-url', help='Repository URL to clone')
     
     args = parser.parse_args()
@@ -344,6 +350,7 @@ def main():
             recipe_type=args.recipe_type,
             esmvaltool_version=args.esmvaltool_version,
             conda_module=args.conda_module,
+            project=args.project,
             repository_url=args.repository_url
         )
         

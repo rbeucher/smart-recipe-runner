@@ -1,0 +1,69 @@
+# Multi-Recipe Configuration for ESMValTool Recipes
+# This file defines multiple ESMValTool recipes to run with their specific configurations
+
+# Global defaults that apply to all recipes unless overridden
+defaults:
+  type: esmvaltool
+  project: w40
+  esmvaltool_version: main
+  conda_module: conda/analysis3
+  config:
+    queue: normal
+    walltime: "04:00:00"
+    memory: 16GB
+    group: medium
+
+# List of recipes to run
+recipes:
+  - name: recipe_ocean_example.yml
+    enabled: true
+    config:
+      walltime: "02:00:00"
+      memory: 8GB
+      max_parallel_tasks: 4
+      
+  - name: recipe_climate_patterns.yml
+    enabled: true
+    esmvaltool_version: v2.10.0
+    config:
+      walltime: "06:00:00"
+      memory: 32GB
+      group: large
+      max_parallel_tasks: 8
+
+  - name: recipe_python.yml
+    enabled: true
+    config:
+      queue: express
+      walltime: "01:00:00"
+      memory: 4GB
+      group: small
+
+  - name: recipe_combined_indices.yml
+    enabled: false  # This recipe is disabled
+    config:
+      walltime: "08:00:00"
+      memory: 64GB
+      group: large
+
+  - name: recipe_diurnal_temperature_index.yml
+    enabled: true
+    config:
+      walltime: "03:00:00"
+      memory: 16GB
+      max_parallel_tasks: 6
+
+  - name: recipe_extreme_events.yml
+    enabled: true
+    esmvaltool_version: v2.9.0
+    config:
+      walltime: "05:00:00"
+      memory: 24GB
+      group: medium
+
+  - name: recipe_flato13ipcc.yml
+    enabled: true
+    config:
+      walltime: "04:30:00"
+      memory: 20GB
+      max_parallel_tasks: 4

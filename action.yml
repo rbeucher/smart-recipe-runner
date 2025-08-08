@@ -5,14 +5,24 @@ author: 'ESMValTool Community'
 inputs:
   recipe_type:
     description: 'Type of recipe: esmvaltool or cosima'
-    required: true
+    required: false
   recipe_name:
-    description: 'Name of the recipe to run'
-    required: true
+    description: 'Name of the recipe to run (required for single recipe mode)'
+    required: false
   config:
     description: 'Recipe configuration (JSON string)'
     required: false
     default: '{}'
+  config_file:
+    description: 'Path to YAML configuration file for multi-recipe execution'
+    required: false
+  selected_recipes:
+    description: 'Comma-separated list of specific recipes to run from config file (default: all enabled)'
+    required: false
+  mode:
+    description: 'Execution mode: single (default) or list-recipes'
+    required: false
+    default: 'single'
   esmvaltool_version:
     description: 'ESMValTool version to use (for esmvaltool recipes)'
     required: false
@@ -21,6 +31,10 @@ inputs:
     description: 'Conda module to load'
     required: false
     default: 'conda/analysis3'
+  project:
+    description: 'PBS project code (e.g., w40, kj13, etc.)'
+    required: false
+    default: 'w40'
   repository_url:
     description: 'Custom repository URL for cloning'
     required: false
@@ -55,6 +69,12 @@ outputs:
   gadi_path:
     description: 'Path to script on Gadi (if submitted)'
     value: ${{ steps.set-job-outputs.outputs.gadi_path }}
+  matrix:
+    description: 'Recipe matrix for GitHub Actions (list-recipes mode only)'
+    value: ${{ steps.list-recipes.outputs.matrix }}
+  recipe_count:
+    description: 'Number of recipes found (list-recipes mode only)'
+    value: ${{ steps.list-recipes.outputs.recipe_count }}
 
 runs:
   using: 'composite'
@@ -74,25 +94,81 @@ runs:
     - name: Validate Inputs
       shell: bash
       run: |
-        # Validate recipe type
+        # Check execution mode
+        mode="${{ inputs.mode }}"
+        config_file="${{ inputs.config_file }}"
+        recipe_name="${{ inputs.recipe_name }}"
         recipe_type="${{ inputs.recipe_type }}"
-        if [[ "$recipe_type" != "esmvaltool" && "$recipe_type" != "cosima" ]]; then
-          echo "❌ Invalid recipe_type: $recipe_type. Must be 'esmvaltool' or 'cosima'"
-          exit 1
+        
+        if [[ "$mode" == "list-recipes" ]]; then
+          # List recipes mode - requires config_file
+          if [[ -z "$config_file" ]]; then
+            echo "❌ config_file is required for list-recipes mode"
+            exit 1
+          fi
+          
+          if [[ ! -f "$config_file" ]]; then
+            echo "❌ Configuration file not found: $config_file"
+            exit 1
+          fi
+          
+          echo "✅ List recipes mode validation passed"
+          echo "Config file: $config_file"
+          
+        else
+          # Single recipe mode - requires recipe_name and recipe_type
+          if [[ -z "$recipe_name" ]]; then
+            echo "❌ recipe_name is required for single recipe mode"
+            exit 1
+          fi
+          
+          if [[ -z "$recipe_type" ]]; then
+            echo "❌ recipe_type is required for single recipe mode"
+            exit 1
+          fi
+          
+          # Validate recipe type
+          if [[ "$recipe_type" != "esmvaltool" && "$recipe_type" != "cosima" ]]; then
+            echo "❌ Invalid recipe_type: $recipe_type. Must be 'esmvaltool' or 'cosima'"
+            exit 1
+          fi
+          
+          echo "✅ Single recipe mode validation passed"
+          echo "Recipe type: $recipe_type"
+          echo "Recipe name: $recipe_name"
         fi
         
-        # Validate recipe name
-        if [[ -z "${{ inputs.recipe_name }}" ]]; then
-          echo "❌ recipe_name is required"
-          exit 1
-        fi
+    - name: List Recipes (Matrix Generation)
+      id: list-recipes
+      if: inputs.mode == 'list-recipes'
+      shell: bash
+      run: |
+        echo "📋 Generating recipe matrix from configuration file"
         
-        echo "✅ Input validation passed"
-        echo "Recipe type: $recipe_type"
-        echo "Recipe name: ${{ inputs.recipe_name }}"
+        # Run the recipe matrix generator
+        python "${{ github.action_path }}/lib/recipe_matrix_generator.py" \
+          --config "${{ inputs.config_file }}" \
+          --recipes "${{ inputs.selected_recipes }}" \
+          --output matrix > recipe_matrix.json
+        
+        echo "Generated matrix:"
+        cat recipe_matrix.json
+        
+        # Set output for GitHub Actions matrix
+        echo "matrix=$(cat recipe_matrix.json)" >> $GITHUB_OUTPUT
+        
+        # Also output the count for information
+        recipe_count=$(python "${{ github.action_path }}/lib/recipe_matrix_generator.py" \
+          --config "${{ inputs.config_file }}" \
+          --recipes "${{ inputs.selected_recipes }}" \
+          --output count)
+        
+        echo "recipe_count=$recipe_count" >> $GITHUB_OUTPUT
+        echo "✅ Found $recipe_count recipe(s) to execute"
         
     - name: Generate PBS Script
       id: generate-pbs
+      if: inputs.mode != 'list-recipes'
       shell: bash
       run: |
         echo "🎯 Generating PBS script for ${{ inputs.recipe_type }} recipe: ${{ inputs.recipe_name }}"
@@ -119,7 +195,8 @@ runs:
             recipe_type = sys.argv[3] if len(sys.argv) > 3 else 'esmvaltool'
             esmvaltool_version = sys.argv[4] if len(sys.argv) > 4 else 'main'
             conda_module = sys.argv[5] if len(sys.argv) > 5 else 'conda/anlysis3'
-            repository_url = sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] != 'None' else None
+            project = sys.argv[6] if len(sys.argv) > 6 else 'w40'
+            repository_url = sys.argv[7] if len(sys.argv) > 7 and sys.argv[7] != 'None' else None
             
             print(f"Parameters:")
             print(f"  Recipe: {recipe_name}")
@@ -127,6 +204,7 @@ runs:
             print(f"  Config: {config_json}")
             print(f"  ESMValTool version: {esmvaltool_version}")
             print(f"  Conda module: {conda_module}")
+            print(f"  Project: {project}")
             print(f"  Repository URL: {repository_url}")
             
             # Generate PBS script
@@ -136,6 +214,7 @@ runs:
                 recipe_type=recipe_type,
                 esmvaltool_version=esmvaltool_version,
                 conda_module=conda_module,
+                project=project,
                 repository_url=repository_url
             )
             
@@ -164,6 +243,7 @@ runs:
           "${{ inputs.recipe_type }}" \
           "${{ inputs.esmvaltool_version }}" \
           "${{ inputs.conda_module }}" \
+          "${{ inputs.project }}" \
           "${{ inputs.repository_url }}"
         
         # Set outputs
