@@ -257,6 +257,7 @@ runs:
         fi
         
     - name: Display Results
+      if: inputs.mode != 'list-recipes'
       shell: bash
       run: |
         echo "📋 PBS Script Generation Results:"
