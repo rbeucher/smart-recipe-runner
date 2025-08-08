@@ -13,7 +13,7 @@ def test_recipe_runner_initialization():
     # Import and create the runner
     import importlib.util
     spec = importlib.util.spec_from_file_location("recipe_runner", 
-        os.path.join(os.path.dirname(__file__), '..', 'lib', 'recipe-runner.py'))
+        os.path.join(os.path.dirname(__file__), '..', 'lib', 'recipe_runner.py'))
     recipe_runner_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(recipe_runner_module)
     

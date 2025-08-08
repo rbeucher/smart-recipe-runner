@@ -40,7 +40,7 @@ def recipe_runner():
     """Create a SmartRecipeRunner instance."""
     # Import the recipe runner module
     module = _import_module_from_file("recipe_runner", 
-        os.path.join(os.path.dirname(__file__), '..', 'lib', 'recipe-runner.py'))
+        os.path.join(os.path.dirname(__file__), '..', 'lib', 'recipe_runner.py'))
     
     if module is None:
         # Create a mock if import fails
