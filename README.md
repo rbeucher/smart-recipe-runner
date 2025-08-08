@@ -170,7 +170,7 @@ The action automatically handles repository cloning and recipe discovery on Gadi
 | `recipe_name` | Recipe file name or notebook name | Yes | - |
 | `config` | Configuration (JSON string) | No | `{}` |
 | `esmvaltool_version` | ESMValTool version (for esmvaltool recipes) | No | `main` |
-| `conda_module` | Conda module to load | No | `conda/access-med` |
+| `conda_module` | Conda module to load | No | `conda/analysis3` |
 | `repository_url` | Repository URL (for cloning custom repos) | No | - |
 | `submit_job` | Submit job to Gadi (`true`/`false`) | No | `false` |
 | `gadi_username` | Gadi username for SSH connection | No | - |

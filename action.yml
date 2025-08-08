@@ -29,18 +29,18 @@ inputs:
     required: true
   gadi_ssh_key:
     description: 'SSH private key for Gadi connection'
-    required: false
+    required: true
   gadi_ssh_passphrase:
     description: 'Passphrase for SSH private key (if password-protected)'
     required: false
   submit_job:
     description: 'Whether to submit the job to Gadi (true/false)'
     required: false
-    default: 'false'
+    default: 'true'
   scripts_dir:
     description: 'Directory on Gadi to upload scripts'
     required: false
-    default: '/scratch/$USER/esmvaltool-ci'
+    default: '/scratch/$PROJECT/$USER/med-ci'
 
 outputs:
   status:
@@ -118,7 +118,7 @@ runs:
             config_json = sys.argv[2] if len(sys.argv) > 2 else '{}'
             recipe_type = sys.argv[3] if len(sys.argv) > 3 else 'esmvaltool'
             esmvaltool_version = sys.argv[4] if len(sys.argv) > 4 else 'main'
-            conda_module = sys.argv[5] if len(sys.argv) > 5 else 'conda/access-med'
+            conda_module = sys.argv[5] if len(sys.argv) > 5 else 'conda/anlysis3'
             repository_url = sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] != 'None' else None
             
             print(f"Parameters:")

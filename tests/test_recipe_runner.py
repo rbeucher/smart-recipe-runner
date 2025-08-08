@@ -62,7 +62,7 @@ def test_generate_pbs_script(recipe_runner, mock_config, monkeypatch):
         config=mock_config,
         recipe_type='esmvaltool',
         esmvaltool_version='main',
-        conda_module='conda/access-med'
+        conda_module='conda/analysis3'
     )
     
     assert isinstance(script, str)
@@ -110,7 +110,7 @@ def test_full_workflow_dry_run(recipe_runner):
         config_json=config_json,
         recipe_type='esmvaltool',
         esmvaltool_version='main',
-        conda_module='conda/access-med'
+        conda_module='conda/analysis3'
     )
     
     # Should complete successfully 

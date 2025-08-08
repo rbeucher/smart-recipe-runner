@@ -239,7 +239,7 @@ echo "Job completed at: $(date)"
     def generate_pbs_script(self, recipe_name: str, config: Dict, 
                            recipe_type: str = 'esmvaltool', 
                            esmvaltool_version: str = 'main', 
-                           conda_module: str = 'conda/access-med',
+                           conda_module: str = 'conda/analysis3',
                            repository_url: str = None) -> str:
         """Generate PBS script based on recipe type."""
         
@@ -253,7 +253,7 @@ echo "Job completed at: $(date)"
     def run(self, recipe_name: str, config_json: str = '{}', 
             recipe_type: str = 'esmvaltool',
             esmvaltool_version: str = 'main', 
-            conda_module: str = 'conda/access-med',
+            conda_module: str = 'conda/analysis3',
             repository_url: str = None) -> tuple[str, str]:
         """
         Generate PBS script for HPC execution via ssh-action.
@@ -331,7 +331,7 @@ def main():
                        choices=['esmvaltool', 'cosima'], 
                        help='Type of recipe to run')
     parser.add_argument('--esmvaltool-version', default='main', help='ESMValTool version')
-    parser.add_argument('--conda-module', default='conda/access-med', help='Conda module')
+    parser.add_argument('--conda-module', default='conda/analysis3', help='Conda module')
     parser.add_argument('--repository-url', help='Repository URL to clone')
     
     args = parser.parse_args()
