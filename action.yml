@@ -194,7 +194,7 @@ runs:
             config_json = sys.argv[2] if len(sys.argv) > 2 else '{}'
             recipe_type = sys.argv[3] if len(sys.argv) > 3 else 'esmvaltool'
             esmvaltool_version = sys.argv[4] if len(sys.argv) > 4 else 'main'
-            conda_module = sys.argv[5] if len(sys.argv) > 5 else 'conda/anlysis3'
+            conda_module = sys.argv[5] if len(sys.argv) > 5 else 'conda/analysis3'
             project = sys.argv[6] if len(sys.argv) > 6 else 'w40'
             repository_url = sys.argv[7] if len(sys.argv) > 7 and sys.argv[7] != 'None' else None
             
