@@ -12,6 +12,7 @@ defaults:
     walltime: "04:00:00"
     memory: 16GB
     group: medium
+    storage: "gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/xp65+gdata/al33+gdata/rt52+gdata/zz93+gdata/cb20"
 
 # List of recipes to run
 recipes:
@@ -30,6 +31,7 @@ recipes:
       memory: 32GB
       group: large
       max_parallel_tasks: 8
+      storage: "gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/xp65+gdata/al33+gdata/rt52+gdata/zz93+gdata/cb20+gdata/extra_data"
 
   - name: recipe_python.yml
     enabled: true

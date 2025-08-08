@@ -12,6 +12,7 @@ defaults:
     walltime: "02:00:00" 
     memory: 8GB
     group: small
+    storage: "gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/v45+gdata/hh5"
 
 # List of recipes to run
 recipes:
@@ -39,6 +40,7 @@ recipes:
     config:
       walltime: "02:00:00"
       memory: 8GB
+      storage: "gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/v45+gdata/hh5+gdata/custom_salt"
 
   - name: current_analysis.py
     enabled: false  # This recipe is disabled
@@ -59,6 +61,7 @@ recipes:
       walltime: "04:00:00"
       memory: 16GB
       group: medium
+      storage: "gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/v45+gdata/hh5+gdata/large_data"
 
   - name: transport_analysis.py
     enabled: true

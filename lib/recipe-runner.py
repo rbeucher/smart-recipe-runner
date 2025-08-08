@@ -34,10 +34,13 @@ class SmartRecipeRunner:
         max_parallel_tasks = config.get('max_parallel_tasks')
         parallel_tasks_param = f" --max_parallel_tasks={max_parallel_tasks}" if max_parallel_tasks else ""
         
+        # Use storage from config or default
+        pbs_storage = config.get('storage', "gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/xp65+gdata/al33+gdata/rt52+gdata/zz93+gdata/cb20")
+        
         pbs_script = f"""#!/bin/bash -l 
 #PBS -S /bin/bash
 #PBS -P {project}
-#PBS -l storage=gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/xp65+gdata/al33+gdata/rt52+gdata/zz93+gdata/cb20
+#PBS -l storage={pbs_storage}
 #PBS -N {recipe_name}-{esmvaltool_version}
 #PBS -W block=true
 #PBS -W umask=037
@@ -136,10 +139,13 @@ echo "Job completed at: $(date)"
     def generate_cosima_pbs_script(self, recipe_name: str, config: Dict, project: str = 'w40') -> str:
         """Generate PBS script for COSIMA recipe execution on Gadi."""
         
+        # Use storage from config or default
+        pbs_storage = config.get('storage', "gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/v45+gdata/hh5")
+        
         pbs_script = f"""#!/bin/bash -l 
 #PBS -S /bin/bash
 #PBS -P {project}
-#PBS -l storage=gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/v45+gdata/hh5
+#PBS -l storage={pbs_storage}
 #PBS -N {recipe_name}-cosima
 #PBS -W block=true
 #PBS -W umask=037
@@ -262,7 +268,7 @@ echo "Job completed at: $(date)"
         
         Args:
             recipe_name: Name of the recipe to run
-            config_json: JSON configuration string
+            config_json: JSON configuration string (may include storage directive)
             recipe_type: Type of recipe ('esmvaltool' or 'cosima')
             esmvaltool_version: ESMValTool version (for esmvaltool recipes)
             conda_module: Conda module to load
@@ -303,6 +309,8 @@ echo "Job completed at: $(date)"
         print(f"  Walltime: {config['walltime']}")
         print(f"  Group: {config['group']}")
         print(f"  Project: {project}")
+        if config.get('storage'):
+            print(f"  Storage: {config['storage']}")
         if repository_url:
             print(f"  Repository: {repository_url}")
         
