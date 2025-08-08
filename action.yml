@@ -283,7 +283,8 @@ runs:
 
     - name: Read PBS Content for Upload
       id: read-pbs
-      if: inputs.submit_job == 'true' && inputs.gadi_username != '' && inputs.gadi_ssh_key != ''
+      if: inputs.mode != 'list-recipes'
+      #if: inputs.submit_job == 'true' && inputs.gadi_username != '' && inputs.gadi_ssh_key != ''
       shell: bash
       run: |
         if [[ -f "${{ steps.generate-pbs.outputs.pbs_filename }}" ]]; then
