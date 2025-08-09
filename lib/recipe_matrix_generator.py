@@ -97,11 +97,15 @@ def format_for_matrix(recipes: List[Dict[str, Any]]) -> Dict[str, Any]:
     matrix_recipes = []
     
     for recipe in recipes:
-        # Extract the necessary fields for the matrix
+        # Extract all necessary fields for the matrix
         matrix_recipe = {
             'recipe_name': recipe['name'],
             'recipe_type': recipe.get('type', 'esmvaltool'),
-            'recipe_config': json.dumps(recipe.get('config', {}))
+            'recipe_config': json.dumps(recipe.get('config', {})),
+            'esmvaltool_version': recipe.get('esmvaltool_version', 'main'),
+            'conda_module': recipe.get('conda_module', 'conda/analysis3'),
+            'project': recipe.get('project', 'w40'),
+            'repository_url': recipe.get('repository_url', '')
         }
         matrix_recipes.append(matrix_recipe)
     

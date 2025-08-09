@@ -314,10 +314,10 @@ runs:
           "${{ matrix.recipe_name }}" \
           "${{ matrix.recipe_config }}" \
           "${{ matrix.recipe_type }}" \
-          "${{ inputs.esmvaltool_version }}" \
-          "${{ inputs.conda_module }}" \
-          "${{ inputs.project }}" \
-          "${{ inputs.repository_url }}"
+          "${{ matrix.esmvaltool_version }}" \
+          "${{ matrix.conda_module }}" \
+          "${{ matrix.project }}" \
+          "${{ matrix.repository_url }}"
         
         # Set outputs
         if [[ -f "pbs_result.txt" ]]; then
@@ -388,7 +388,7 @@ runs:
           SCRIPTS_DIR="${{ inputs.scripts_dir }}"
           RECIPE_NAME="${{ matrix.recipe_name }}"
           RECIPE_TYPE="${{ matrix.recipe_type }}"
-          REPOSITORY_URL="${{ inputs.repository_url }}"
+          REPOSITORY_URL="${{ matrix.repository_url }}"
           
           # Decode the PBS content
           echo "${{ steps.read-pbs.outputs.pbs_content_b64 }}" | base64 -d > /tmp/pbs_content.pbs
