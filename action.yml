@@ -39,6 +39,10 @@ inputs:
     description: 'Whether to submit the job to Gadi (true/false)'
     required: false
     default: 'true'
+  wait_for_completion:
+    description: 'Whether to wait for job completion (true/false). If false, job is submitted and tracked via dashboard.'
+    required: false
+    default: 'false'
   scripts_dir:
     description: 'Directory on Gadi to upload scripts'
     required: false
@@ -389,6 +393,7 @@ runs:
           RECIPE_NAME="${{ matrix.recipe_name }}"
           RECIPE_TYPE="${{ matrix.recipe_type }}"
           REPOSITORY_URL="${{ matrix.repository_url }}"
+          WAIT_FOR_COMPLETION="${{ inputs.wait_for_completion }}"
           
           # Decode the PBS content
           echo "${{ steps.read-pbs.outputs.pbs_content_b64 }}" | base64 -d > /tmp/pbs_content.pbs
@@ -440,7 +445,14 @@ runs:
           
           echo "📋 Submitting job with qsub..."
           cd "$SCRIPTS_DIR"
-          JOB_OUTPUT=$(qsub "$PBS_FILENAME")
+          
+          if [[ "$WAIT_FOR_COMPLETION" == "true" ]]; then
+            echo "⏳ Submitting job with blocking mode (will wait for completion)..."
+            JOB_OUTPUT=$(qsub -W block=true "$PBS_FILENAME")
+          else
+            echo "🚀 Submitting job with non-blocking mode (tracked via dashboard)..."
+            JOB_OUTPUT=$(qsub "$PBS_FILENAME")
+          fi
           
           # Extract job ID from qsub output
           JOB_ID=$(echo "$JOB_OUTPUT" | grep -oE '[0-9]+\.[a-zA-Z0-9]+' | head -1)
@@ -450,16 +462,97 @@ runs:
           echo "PBS file: $SCRIPTS_DIR/$PBS_FILENAME"
           echo "Recipe: $RECIPE_NAME"
           echo "Repository: $(pwd)/../$REPO_DIR"
+          echo "Wait mode: $WAIT_FOR_COMPLETION"
           
-          # Write a simple status file for reference
+          # Write comprehensive status file for tracking
+          TIMESTAMP=$(date -Iseconds)
           echo "job_id=$JOB_ID" > "$SCRIPTS_DIR/.job_status_$RECIPE_NAME.txt"
           echo "gadi_path=$SCRIPTS_DIR/$PBS_FILENAME" >> "$SCRIPTS_DIR/.job_status_$RECIPE_NAME.txt"
           echo "repository_path=$(pwd)/../$REPO_DIR" >> "$SCRIPTS_DIR/.job_status_$RECIPE_NAME.txt"
           echo "status=job-submitted" >> "$SCRIPTS_DIR/.job_status_$RECIPE_NAME.txt"
-          echo "submission_time=$(date)" >> "$SCRIPTS_DIR/.job_status_$RECIPE_NAME.txt"
+          echo "submission_time=$TIMESTAMP" >> "$SCRIPTS_DIR/.job_status_$RECIPE_NAME.txt"
+          echo "recipe_name=$RECIPE_NAME" >> "$SCRIPTS_DIR/.job_status_$RECIPE_NAME.txt"
+          echo "recipe_type=$RECIPE_TYPE" >> "$SCRIPTS_DIR/.job_status_$RECIPE_NAME.txt"
+          echo "wait_for_completion=$WAIT_FOR_COMPLETION" >> "$SCRIPTS_DIR/.job_status_$RECIPE_NAME.txt"
+          echo "github_run_id=${{ github.run_id }}" >> "$SCRIPTS_DIR/.job_status_$RECIPE_NAME.txt"
+          echo "github_repository=${{ github.repository }}" >> "$SCRIPTS_DIR/.job_status_$RECIPE_NAME.txt"
           
           echo "📋 Job submission completed"
           echo "Monitor with: qstat $JOB_ID"
+          
+          if [[ "$WAIT_FOR_COMPLETION" == "false" ]]; then
+            echo "📊 Job will be tracked via dashboard - check GitHub Pages for status updates"
+          fi
+
+    - name: Track Job Submission
+      id: track-job
+      if: steps.mode.outputs.mode == 'single' && inputs.submit_job == 'true' && inputs.wait_for_completion == 'false'
+      shell: bash
+      run: |
+        echo "📊 Tracking job submission for dashboard monitoring..."
+        
+        # Create job tracking script
+        cat > track_job.py << 'EOF'
+        import os
+        import sys
+        import json
+        from datetime import datetime, timezone
+        
+        # Add lib directory to path
+        sys.path.insert(0, os.path.join(os.environ.get('GITHUB_ACTION_PATH', '.'), 'lib'))
+        
+        try:
+            from job_tracker import JobTracker
+            
+            # Initialize tracker
+            tracker = JobTracker(
+                github_token=os.environ.get('GITHUB_TOKEN'),
+                repo=os.environ.get('GITHUB_REPOSITORY'),
+                storage_type="issue"  # Use GitHub Issues for tracking
+            )
+            
+            # Job data from matrix and steps
+            job_data = {
+                "job_id": "${{ steps.set-job-outputs.outputs.job_id }}",
+                "recipe_name": "${{ matrix.recipe_name }}",
+                "recipe_type": "${{ matrix.recipe_type }}",
+                "gadi_path": "${{ steps.set-job-outputs.outputs.gadi_path }}",
+                "repository_path": "${{ inputs.scripts_dir }}/../" + 
+                                 ("COSIMA-recipes-ci" if "${{ matrix.recipe_type }}" == "cosima" else "ESMValTool-ci"),
+                "github_run_id": os.environ.get('GITHUB_RUN_ID'),
+                "matrix_config": json.loads('${{ matrix.recipe_config }}'),
+                "project": "${{ matrix.project }}",
+                "conda_module": "${{ matrix.conda_module }}"
+            }
+            
+            # Track the job
+            tracking_id = tracker.track_job_submission(job_data)
+            print(f"✅ Job tracked with ID: {tracking_id}")
+            
+            # Set output for reference
+            with open('tracking_result.txt', 'w') as f:
+                f.write(f"tracking_id={tracking_id}\n")
+                f.write(f"status=tracked\n")
+                
+        except Exception as e:
+            print(f"⚠️  Warning: Could not track job: {e}")
+            # Don't fail the action if tracking fails
+            with open('tracking_result.txt', 'w') as f:
+                f.write("tracking_id=\n")
+                f.write("status=tracking-failed\n")
+        EOF
+        
+        # Run tracking
+        python track_job.py
+        
+        # Set outputs
+        if [[ -f "tracking_result.txt" ]]; then
+          while IFS= read -r line; do
+            echo "$line" >> $GITHUB_OUTPUT
+          done < tracking_result.txt
+        fi
+        
+        echo "📊 Job tracking completed - check GitHub Issues for status updates"
 
     - name: Set Job Outputs
       id: set-job-outputs
