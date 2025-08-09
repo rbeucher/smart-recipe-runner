@@ -16,55 +16,13 @@ defaults:
 
 # List of recipes to run
 recipes:
-  - name: ocean_analysis.py
+  - name: Barotropic_Streamfunction.ipynb
     enabled: true
     config:
-      walltime: "01:30:00"
+      walltime: "00:30:00"
       memory: 4GB
-      
-  - name: sea_ice_analysis.py 
+  - name: Barotropic_Streamfunction.ipynb
     enabled: true
     config:
-      walltime: "02:30:00"
-      memory: 6GB
-      
-  - name: temperature_analysis.py
-    enabled: true
-    config:
-      queue: express
-      walltime: "01:00:00"
+      walltime: "00:30:00"
       memory: 4GB
-
-  - name: salinity_analysis.py
-    enabled: true
-    config:
-      walltime: "02:00:00"
-      memory: 8GB
-      storage: "gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/v45+gdata/hh5+gdata/custom_salt"
-
-  - name: current_analysis.py
-    enabled: false  # This recipe is disabled
-    config:
-      walltime: "03:00:00"
-      memory: 12GB
-
-  - name: mixed_layer_depth.py
-    enabled: true
-    config:
-      walltime: "01:45:00"
-      memory: 6GB
-
-  - name: heat_budget.py
-    enabled: true
-    config:
-      queue: normal
-      walltime: "04:00:00"
-      memory: 16GB
-      group: medium
-      storage: "gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/v45+gdata/hh5+gdata/large_data"
-
-  - name: transport_analysis.py
-    enabled: true
-    config:
-      walltime: "02:15:00"
-      memory: 8GB

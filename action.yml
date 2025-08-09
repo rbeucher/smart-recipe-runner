@@ -1,28 +1,14 @@
 name: 'Smart Recipe Runner'
-description: 'Generate and optionally submit PBS scripts for ESMValTool and COSIMA recipes with intelligent resource allocation. Supports both generate-only mode and full execution with direct Gadi job submission.'
+description: 'Run ESMValTool and COSIMA recipes with matrix generation and PBS job submission. Supports both matrix generation and individual recipe execution.'
 author: 'ESMValTool Community'
 
 inputs:
-  recipe_type:
-    description: 'Type of recipe: esmvaltool or cosima'
-    required: false
-  recipe_name:
-    description: 'Name of the recipe to run (required for single recipe mode)'
-    required: false
-  config:
-    description: 'Recipe configuration (JSON string)'
-    required: false
-    default: '{}'
+  # Matrix generation inputs
   config_file:
     description: 'Path to YAML configuration file for multi-recipe execution'
     required: false
-  selected_recipes:
-    description: 'Comma-separated list of specific recipes to run from config file (default: all enabled)'
-    required: false
-  mode:
-    description: 'Execution mode: single (default) or list-recipes'
-    required: false
-    default: 'single'
+  
+  # Common parameters
   esmvaltool_version:
     description: 'ESMValTool version to use (for esmvaltool recipes)'
     required: false
@@ -36,14 +22,16 @@ inputs:
     required: false
     default: 'w40'
   repository_url:
-    description: 'Custom repository URL for cloning'
+    description: 'Repository URL for cloning'
     required: false
+  
+  # Job submission parameters
   gadi_username:
     description: 'Gadi username for SSH connection'
-    required: true
+    required: false
   gadi_ssh_key:
     description: 'SSH private key for Gadi connection'
-    required: true
+    required: false
   gadi_ssh_passphrase:
     description: 'Passphrase for SSH private key (if password-protected)'
     required: false
@@ -57,11 +45,17 @@ inputs:
     default: '/scratch/$PROJECT/$USER/med-ci'
 
 outputs:
+  matrix:
+    description: 'Recipe matrix for GitHub Actions (JSON)'
+    value: ${{ steps.list-recipes.outputs.matrix }}
+  recipe_count:
+    description: 'Number of recipes found'
+    value: ${{ steps.list-recipes.outputs.recipe_count }}
   status:
-    description: 'Generation status (pbs-generated, job-submitted, or error)'
-    value: ${{ steps.set-job-outputs.outputs.status || steps.generate-pbs.outputs.status }}
+    description: 'Execution status (matrix-generated, pbs-generated, job-submitted, or error)'
+    value: ${{ steps.set-job-outputs.outputs.status || steps.generate-pbs.outputs.status || steps.list-recipes.outputs.status }}
   pbs_filename:
-    description: 'Generated PBS script filename'
+    description: 'Generated PBS script filename (for single recipe execution)'
     value: ${{ steps.generate-pbs.outputs.pbs_filename }}
   job_id:
     description: 'PBS job ID (if submitted)'
@@ -69,12 +63,6 @@ outputs:
   gadi_path:
     description: 'Path to script on Gadi (if submitted)'
     value: ${{ steps.set-job-outputs.outputs.gadi_path }}
-  matrix:
-    description: 'Recipe matrix for GitHub Actions (list-recipes mode only)'
-    value: ${{ steps.list-recipes.outputs.matrix }}
-  recipe_count:
-    description: 'Number of recipes found (list-recipes mode only)'
-    value: ${{ steps.list-recipes.outputs.recipe_count }}
 
 runs:
   using: 'composite'
@@ -91,87 +79,93 @@ runs:
         export PYTHONPATH="${PYTHONPATH}:${{ github.action_path }}/lib"
         echo "PYTHONPATH=${PYTHONPATH}" >> $GITHUB_ENV
         
-    - name: Validate Inputs
+    - name: Determine Execution Mode
+      id: mode
       shell: bash
       run: |
-        # Check execution mode
-        mode="${{ inputs.mode }}"
-        config_file="${{ inputs.config_file }}"
-        recipe_name="${{ inputs.recipe_name }}"
-        recipe_type="${{ inputs.recipe_type }}"
-        
-        if [[ "$mode" == "list-recipes" ]]; then
-          # List recipes mode - requires config_file
-          if [[ -z "$config_file" ]]; then
-            echo "❌ config_file is required for list-recipes mode"
-            exit 1
-          fi
-          
-          if [[ ! -f "$config_file" ]]; then
-            echo "❌ Configuration file not found: $config_file"
-            exit 1
-          fi
-          
-          echo "✅ List recipes mode validation passed"
-          echo "Config file: $config_file"
-          
+        # If we have config_file, generate matrix
+        # Otherwise, execute single recipe (recipe_name will come from matrix)
+        if [[ -n "${{ inputs.config_file }}" ]]; then
+          echo "mode=matrix" >> $GITHUB_OUTPUT
+          echo "📋 Matrix generation mode"
         else
-          # Single recipe mode - requires recipe_name and recipe_type
-          if [[ -z "$recipe_name" ]]; then
-            echo "❌ recipe_name is required for single recipe mode"
-            exit 1
-          fi
-          
-          if [[ -z "$recipe_type" ]]; then
-            echo "❌ recipe_type is required for single recipe mode"
-            exit 1
-          fi
-          
-          # Validate recipe type
-          if [[ "$recipe_type" != "esmvaltool" && "$recipe_type" != "cosima" ]]; then
-            echo "❌ Invalid recipe_type: $recipe_type. Must be 'esmvaltool' or 'cosima'"
-            exit 1
-          fi
-          
-          echo "✅ Single recipe mode validation passed"
-          echo "Recipe type: $recipe_type"
-          echo "Recipe name: $recipe_name"
+          echo "mode=single" >> $GITHUB_OUTPUT
+          echo "🎯 Single recipe execution mode"
         fi
         
-    - name: List Recipes (Matrix Generation)
+    - name: Validate Matrix Inputs
+      if: steps.mode.outputs.mode == 'matrix'
+      shell: bash
+      run: |
+        # Validate that config_file exists
+        config_file="${{ inputs.config_file }}"
+        
+        if [[ ! -f "$config_file" ]]; then
+          echo "❌ Configuration file not found: $config_file"
+          exit 1
+        fi
+        
+        echo "✅ Matrix input validation passed"
+        echo "Using config file: $config_file"
+        
+    - name: Validate Single Recipe Inputs
+      if: steps.mode.outputs.mode == 'single'
+      shell: bash
+      run: |
+        # For single recipe execution, recipe_name comes from matrix.recipe_name
+        if [[ -z "${{ matrix.recipe_name }}" ]]; then
+          echo "❌ matrix.recipe_name is required for single recipe execution"
+          exit 1
+        fi
+        
+        if [[ -z "${{ matrix.recipe_type }}" ]]; then
+          echo "❌ matrix.recipe_type is required for single recipe execution"
+          exit 1
+        fi
+        
+        # Validate recipe type
+        if [[ "${{ matrix.recipe_type }}" != "esmvaltool" && "${{ matrix.recipe_type }}" != "cosima" ]]; then
+          echo "❌ Invalid recipe_type: ${{ matrix.recipe_type }}. Must be 'esmvaltool' or 'cosima'"
+          exit 1
+        fi
+        
+        echo "✅ Single recipe validation passed"
+        echo "Recipe type: ${{ matrix.recipe_type }}"
+        echo "Recipe name: ${{ matrix.recipe_name }}"
+        
+    - name: Generate Recipe Matrix
       id: list-recipes
-      if: inputs.mode == 'list-recipes'
+      if: steps.mode.outputs.mode == 'matrix'
       shell: bash
       run: |
         echo "📋 Generating recipe matrix from configuration file"
+        echo "📄 Using configuration file: ${{ inputs.config_file }}"
         
-        # Run the recipe matrix generator
+        # Run the recipe matrix generator with config file
         python "${{ github.action_path }}/lib/recipe_matrix_generator.py" \
           --config "${{ inputs.config_file }}" \
-          --recipes "${{ inputs.selected_recipes }}" \
           --output matrix > recipe_matrix.json
+        
+        # Also output the count for information
+        recipe_count=$(python "${{ github.action_path }}/lib/recipe_matrix_generator.py" \
+          --config "${{ inputs.config_file }}" \
+          --output count)
         
         echo "Generated matrix:"
         cat recipe_matrix.json
         
         # Set output for GitHub Actions matrix
         echo "matrix=$(cat recipe_matrix.json)" >> $GITHUB_OUTPUT
-        
-        # Also output the count for information
-        recipe_count=$(python "${{ github.action_path }}/lib/recipe_matrix_generator.py" \
-          --config "${{ inputs.config_file }}" \
-          --recipes "${{ inputs.selected_recipes }}" \
-          --output count)
-        
         echo "recipe_count=$recipe_count" >> $GITHUB_OUTPUT
+        echo "status=matrix-generated" >> $GITHUB_OUTPUT
         echo "✅ Found $recipe_count recipe(s) to execute"
         
     - name: Generate PBS Script
       id: generate-pbs
-      if: inputs.mode != 'list-recipes'
+      if: steps.mode.outputs.mode == 'single'
       shell: bash
       run: |
-        echo "🎯 Generating PBS script for ${{ inputs.recipe_type }} recipe: ${{ inputs.recipe_name }}"
+        echo "🎯 Generating PBS script for ${{ matrix.recipe_type }} recipe: ${{ matrix.recipe_name }}"
         
         # Create simple PBS generation script
         cat > generate_pbs.py << 'EOF'
@@ -317,9 +311,9 @@ runs:
         
         # Run PBS generation
         python generate_pbs.py \
-          "${{ inputs.recipe_name }}" \
-          "${{ inputs.config }}" \
-          "${{ inputs.recipe_type }}" \
+          "${{ matrix.recipe_name }}" \
+          "${{ matrix.recipe_config }}" \
+          "${{ matrix.recipe_type }}" \
           "${{ inputs.esmvaltool_version }}" \
           "${{ inputs.conda_module }}" \
           "${{ inputs.project }}" \
@@ -336,7 +330,7 @@ runs:
         fi
         
     - name: Display Results
-      if: inputs.mode != 'list-recipes'
+      if: steps.mode.outputs.mode == 'single'
       shell: bash
       run: |
         echo "📋 PBS Script Generation Results:"
@@ -362,8 +356,7 @@ runs:
 
     - name: Read PBS Content for Upload
       id: read-pbs
-      if: inputs.mode != 'list-recipes'
-      #if: inputs.submit_job == 'true' && inputs.gadi_username != '' && inputs.gadi_ssh_key != ''
+      if: steps.mode.outputs.mode == 'single'
       shell: bash
       run: |
         if [[ -f "${{ steps.generate-pbs.outputs.pbs_filename }}" ]]; then
@@ -379,7 +372,7 @@ runs:
 
     - name: Clone Repository and Submit Job to Gadi
       id: submit-job
-      if: inputs.submit_job == 'true' && inputs.gadi_username != '' && inputs.gadi_ssh_key != ''
+      if: steps.mode.outputs.mode == 'single' && inputs.submit_job == 'true' && inputs.gadi_username != '' && inputs.gadi_ssh_key != ''
       uses: appleboy/ssh-action@v1
       with:
         host: 'gadi.nci.org.au'
@@ -393,8 +386,8 @@ runs:
           
           PBS_FILENAME="${{ steps.generate-pbs.outputs.pbs_filename }}"
           SCRIPTS_DIR="${{ inputs.scripts_dir }}"
-          RECIPE_NAME="${{ inputs.recipe_name }}"
-          RECIPE_TYPE="${{ inputs.recipe_type }}"
+          RECIPE_NAME="${{ matrix.recipe_name }}"
+          RECIPE_TYPE="${{ matrix.recipe_type }}"
           REPOSITORY_URL="${{ inputs.repository_url }}"
           
           # Decode the PBS content
@@ -418,7 +411,7 @@ runs:
           fi
           
           if [ ! -d "$REPO_DIR" ]; then
-            echo "� Cloning repository: $REPO_URL"
+            echo "📦 Cloning repository: $REPO_URL"
             git clone "$REPO_URL" "$REPO_DIR"
             if [ $? -eq 0 ]; then
               echo "✅ Repository cloned successfully"
@@ -441,7 +434,7 @@ runs:
           
           echo "📂 Repository setup complete: $(pwd)/$REPO_DIR"
           
-          echo "�📤 Creating PBS script on Gadi: $SCRIPTS_DIR/$PBS_FILENAME"
+          echo "📤 Creating PBS script on Gadi: $SCRIPTS_DIR/$PBS_FILENAME"
           cp /tmp/pbs_content.pbs "$SCRIPTS_DIR/$PBS_FILENAME"
           chmod +x "$SCRIPTS_DIR/$PBS_FILENAME"
           
@@ -470,7 +463,7 @@ runs:
 
     - name: Set Job Outputs
       id: set-job-outputs
-      if: inputs.submit_job == 'true' && inputs.gadi_username != '' && inputs.gadi_ssh_key != ''
+      if: steps.mode.outputs.mode == 'single' && inputs.submit_job == 'true' && inputs.gadi_username != '' && inputs.gadi_ssh_key != ''
       shell: bash
       run: |
         # Since we can't easily get outputs from SSH action, we'll construct them
@@ -487,6 +480,7 @@ runs:
         echo "Note: Check the SSH action output above for the actual Job ID"
 
     - name: Display Final Results
+      if: steps.mode.outputs.mode == 'single'
       shell: bash
       run: |
         echo "🎯 Smart Recipe Runner - Final Results"

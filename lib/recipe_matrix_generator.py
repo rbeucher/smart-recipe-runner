@@ -30,6 +30,16 @@ def load_config(config_path: str) -> Dict[str, Any]:
     return config
 
 
+def load_config_from_string(config_content: str) -> Dict[str, Any]:
+    """Load and validate YAML configuration from string content."""
+    try:
+        config = yaml.safe_load(config_content)
+    except yaml.YAMLError as e:
+        raise ValueError(f"Invalid YAML configuration: {e}")
+    
+    return config
+
+
 def get_enabled_recipes(config: Dict[str, Any], selected_recipes: List[str] = None) -> List[Dict[str, Any]]:
     """Get list of enabled recipes from configuration."""
     all_recipes = config.get('recipes', [])
@@ -104,7 +114,8 @@ def format_for_matrix(recipes: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def main():
     parser = argparse.ArgumentParser(description='Generate GitHub Actions matrix from recipe configuration')
-    parser.add_argument('--config', required=True, help='Path to YAML configuration file')
+    parser.add_argument('--config', help='Path to YAML configuration file')
+    parser.add_argument('--config-content', help='YAML configuration content as string')
     parser.add_argument('--recipes', help='Comma-separated list of specific recipes to include')
     parser.add_argument('--output', choices=['matrix', 'list', 'count'], default='matrix',
                        help='Output format: matrix (GitHub Actions matrix), list (recipe names), count (number of recipes)')
@@ -112,8 +123,13 @@ def main():
     args = parser.parse_args()
     
     try:
-        # Load configuration
-        config = load_config(args.config)
+        # Load configuration from file or string content
+        if args.config:
+            config = load_config(args.config)
+        elif args.config_content:
+            config = load_config_from_string(args.config_content)
+        else:
+            raise ValueError("Either --config or --config-content must be provided")
         
         # Parse selected recipes if provided
         selected_recipes = None

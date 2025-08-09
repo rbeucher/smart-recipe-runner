@@ -1,4 +1,4 @@
-name: COSIMA Single Recipe Test
+name: COSIMA Recipe Test
 on:
   push:
     branches: [ main ]
@@ -9,29 +9,34 @@ on:
       recipe_name:
         description: 'Recipe name to run'
         required: true
-        default: 'ocean_analysis.py'
 
 jobs:
-  cosima-recipe:
+  setup:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.recipes.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Run COSIMA Recipe on Gadi
-        id: cosima
+      - name: Generate Recipe Matrix  
+        id: recipes
         uses: rbeucher/smart-recipe-runner@main
         with:
-          recipe_type: 'cosima'
-          recipe_name: ${{ github.event.inputs.recipe_name || 'ocean_analysis.py' }}
-          repository_url: 'https://github.com/COSIMA/cosima-recipes'
-          gadi_username: ${{ secrets.GADI_USERNAME }}
-          gadi_ssh_key: ${{ secrets.GADI_SSH_KEY }}
-          gadi_ssh_passphrase: ${{ secrets.GADI_SSH_PASSPHRASE }}
+          config_file: 'examples/cosima-all-recipes.yml'
+
+  execute:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Execute Recipe
+        uses: rbeucher/smart-recipe-runner@main
+        with:
+          recipe_type: ${{ matrix.recipe.type }}
+          config: ${{ matrix.recipe.config }}
+          gadi_username: ${{ secrets.GADI_USER }}
+          gadi_ssh_key: ${{ secrets.GADI_KEY }}
+          gadi_ssh_passphrase: ${{ secrets.GADI_KEY_PASSPHRASE }}
+          submit_job: 'true'
           scripts_dir: ${{ secrets.GADI_SCRIPTS_DIR }}
-          project: 'tm70'
-      
-      - name: Monitor Job
-        run: |
-          echo "COSIMA job submitted!"
-          echo "Job ID: ${{ steps.cosima.outputs.job_id }}"
-          echo "Monitor with: qstat ${{ steps.cosima.outputs.job_id }}"
