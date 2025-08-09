@@ -61,8 +61,6 @@ jobs:
       - name: Execute Recipe
         uses: rbeucher/smart-recipe-runner@main
         with:
-          recipe_type: ${{ matrix.recipe.type }}
-          config: ${{ matrix.recipe.config }}
           gadi_username: ${{ secrets.GADI_USERNAME }}
           gadi_ssh_key: ${{ secrets.GADI_SSH_KEY }}
           gadi_ssh_passphrase: ${{ secrets.GADI_SSH_PASSPHRASE }}
@@ -114,7 +112,7 @@ The action automatically handles repository cloning and recipe discovery on Gadi
 
 **Notes:**
 - `*` `config_file` is required for matrix generation mode
-- For matrix execution, `recipe_name` comes from `matrix.recipe.name` automatically
+- For matrix execution, `recipe_name`, `recipe_type`, and `recipe_config` come from the matrix automatically
 
 ## Multi-Recipe Execution
 
@@ -155,9 +153,8 @@ jobs:
       - name: Execute Recipe
         uses: rbeucher/smart-recipe-runner@main
         with:
-          recipe_type: ${{ matrix.recipe.type }}
-          config: ${{ matrix.recipe.config }}
-          # ... other matrix parameters
+          # Recipe parameters come from matrix automatically
+          # ... other common parameters
 ```
 
 ## Outputs

@@ -33,8 +33,6 @@ jobs:
       - name: Execute Recipe
         uses: rbeucher/smart-recipe-runner@main
         with:
-          recipe_type: ${{ matrix.recipe.type }}
-          config: ${{ matrix.recipe.config }}
           gadi_username: ${{ secrets.GADI_USER }}
           gadi_ssh_key: ${{ secrets.GADI_KEY }}
           gadi_ssh_passphrase: ${{ secrets.GADI_KEY_PASSPHRASE }}
