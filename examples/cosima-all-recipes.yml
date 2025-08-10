@@ -12,7 +12,7 @@ defaults:
     walltime: "02:00:00" 
     memory: 8GB
     group: small
-    storage: "gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/v45+gdata/hh5"
+    storage: "gdata/fs38+gdata/oi10+gdata/rr3+gdata/v45+gdata/hh5"
 
 # List of recipes to run
 recipes:

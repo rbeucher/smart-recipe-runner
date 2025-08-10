@@ -18,7 +18,7 @@ inputs:
     required: false
     default: 'conda/analysis3'
   project:
-    description: 'PBS project code (e.g., w40, kj13, etc.)'
+    description: 'PBS project code (e.g., w40, xp65, etc.)'
     required: false
     default: 'w40'
   repository_url:
@@ -46,7 +46,19 @@ inputs:
   scripts_dir:
     description: 'Directory on Gadi to upload scripts'
     required: false
-    default: '/scratch/$PROJECT/$USER/med-ci'
+    default: '/scratch/xp65/$USER/med-ci'
+  base_data_dir:
+    description: 'Base data directory (e.g., /g/data/xp65/admin for configs and logs)'
+    required: false
+    default: '/g/data/xp65/admin'
+  module_base_path:
+    description: 'Base path for module loading (e.g., /g/data/xp65/public/modules)'
+    required: false
+    default: '/g/data/xp65/public/modules'
+  log_base_dir:
+    description: 'Base directory for job logs'
+    required: false
+    default: '/g/data/xp65/admin'
 
 outputs:
   matrix:
@@ -270,7 +282,10 @@ runs:
             conda_module = sys.argv[5] if len(sys.argv) > 5 else 'conda/analysis3'
             project = sys.argv[6] if len(sys.argv) > 6 else 'w40'
             repository_url = sys.argv[7] if len(sys.argv) > 7 and sys.argv[7] != 'None' else None
-            
+            base_data_dir = sys.argv[8] if len(sys.argv) > 8 else '/g/data/xp65/admin'
+            module_base_path = sys.argv[9] if len(sys.argv) > 9 else '/g/data/xp65/public/modules'
+            log_base_dir = sys.argv[10] if len(sys.argv) > 10 else '/g/data/xp65/admin'
+
             # Parse configuration safely
             config_dict = safe_parse_config(config_str)
             config_json = json.dumps(config_dict)
@@ -283,6 +298,9 @@ runs:
             print(f"  Conda module: {conda_module}")
             print(f"  Project: {project}")
             print(f"  Repository URL: {repository_url}")
+            print(f"  Base data dir: {base_data_dir}")
+            print(f"  Module base path: {module_base_path}")
+            print(f"  Log base dir: {log_base_dir}")
             
             # Generate PBS script
             result = runner.run(
@@ -292,7 +310,10 @@ runs:
                 esmvaltool_version=esmvaltool_version,
                 conda_module=conda_module,
                 project=project,
-                repository_url=repository_url
+                repository_url=repository_url,
+                base_data_dir=base_data_dir,
+                module_base_path=module_base_path,
+                log_base_dir=log_base_dir
             )
             
             print(f"✅ PBS generation completed: {result}")
@@ -321,7 +342,10 @@ runs:
           "${{ matrix.esmvaltool_version }}" \
           "${{ matrix.conda_module }}" \
           "${{ matrix.project }}" \
-          "${{ matrix.repository_url }}"
+          "${{ matrix.repository_url }}" \
+          "${{ inputs.base_data_dir }}" \
+          "${{ inputs.module_base_path }}" \
+          "${{ inputs.log_base_dir }}"
         
         # Set outputs
         if [[ -f "pbs_result.txt" ]]; then

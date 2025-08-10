@@ -22,20 +22,23 @@ class SmartRecipeRunner:
         print("🎯 SmartRecipeRunner: Configured for HPC PBS script generation")
 
     def generate_esmvaltool_pbs_script(self, recipe_name: str, config: Dict, 
-                                      esmvaltool_version: str, conda_module: str, project: str = 'w40') -> str:
+                                      esmvaltool_version: str, conda_module: str, project: str = 'w40',
+                                      base_data_dir: str = '/g/data/xp65/admin',
+                                      module_base_path: str = '/g/data/xp65/public/modules',
+                                      log_base_dir: str = '/g/data/xp65/admin') -> str:
         """Generate PBS script for ESMValTool recipe execution on Gadi."""
         
         # Determine config file path based on version
         config_file_version = esmvaltool_version if esmvaltool_version != 'main' else 'main'
-        config_file = f"/g/data/kj13/admin/ESMValTool/.esmvaltool/config-user-{config_file_version}.yml"
-        fallback_config = "/g/data/kj13/admin/ESMValTool/.esmvaltool/config-user.yml"
+        config_file = f"{base_data_dir}/ESMValTool/.esmvaltool/config-user-{config_file_version}.yml"
+        fallback_config = f"{base_data_dir}/ESMValTool/.esmvaltool/config-user.yml"
         
         # Build max_parallel_tasks parameter if specified
         max_parallel_tasks = config.get('max_parallel_tasks')
         parallel_tasks_param = f" --max_parallel_tasks={max_parallel_tasks}" if max_parallel_tasks else ""
         
         # Use storage from config or default
-        pbs_storage = config.get('storage', "gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/xp65+gdata/al33+gdata/rt52+gdata/zz93+gdata/cb20")
+        pbs_storage = config.get('storage', "gdata/xp65")
         
         pbs_script = f"""#!/bin/bash -l 
 #PBS -S /bin/bash
@@ -45,8 +48,8 @@ class SmartRecipeRunner:
 #PBS -W block=true
 #PBS -W umask=037
 #PBS -l wd
-#PBS -o /g/data/kj13/admin/ESMValTool/logs/{recipe_name}-{esmvaltool_version}.out
-#PBS -e /g/data/kj13/admin/ESMValTool/logs/{recipe_name}-{esmvaltool_version}.err
+#PBS -o {log_base_dir}/ESMValTool/logs/{recipe_name}-{esmvaltool_version}.out
+#PBS -e {log_base_dir}/ESMValTool/logs/{recipe_name}-{esmvaltool_version}.err
 #PBS -q {config['queue']}
 #PBS -l walltime={config['walltime']}
 #PBS -l mem={config['memory']}
@@ -55,7 +58,7 @@ module purge
 module load pbs 
 
 # Load version-specific conda environment
-module use /g/data/xp65/public/modules
+module use {module_base_path}
 module load {conda_module}
 
 # Set version-specific config
@@ -136,11 +139,14 @@ echo "Job completed at: $(date)"
 """
         return pbs_script
 
-    def generate_cosima_pbs_script(self, recipe_name: str, config: Dict, project: str = 'w40') -> str:
+    def generate_cosima_pbs_script(self, recipe_name: str, config: Dict, project: str = 'w40',
+                                   base_data_dir: str = '/g/data/xp65/admin',
+                                   module_base_path: str = '/g/data/hh5/public/modules',
+                                   log_base_dir: str = '/g/data/xp65/admin') -> str:
         """Generate PBS script for COSIMA recipe execution on Gadi."""
         
         # Use storage from config or default
-        pbs_storage = config.get('storage', "gdata/kj13+gdata/fs38+gdata/oi10+gdata/rr3+gdata/v45+gdata/hh5")
+        pbs_storage = config.get('storage', "gdata/xp65+gdata/fs38+gdata/oi10+gdata/rr3+gdata/v45+gdata/hh5")
         
         pbs_script = f"""#!/bin/bash -l 
 #PBS -S /bin/bash
@@ -150,8 +156,8 @@ echo "Job completed at: $(date)"
 #PBS -W block=true
 #PBS -W umask=037
 #PBS -l wd
-#PBS -o /g/data/kj13/admin/COSIMA/logs/{recipe_name}.out
-#PBS -e /g/data/kj13/admin/COSIMA/logs/{recipe_name}.err
+#PBS -o {log_base_dir}/COSIMA/logs/{recipe_name}.out
+#PBS -e {log_base_dir}/COSIMA/logs/{recipe_name}.err
 #PBS -q {config['queue']}
 #PBS -l walltime={config['walltime']}
 #PBS -l mem={config['memory']}
@@ -160,7 +166,7 @@ module purge
 module load pbs 
 
 # Load COSIMA environment
-module use /g/data/hh5/public/modules
+module use {module_base_path}
 module load conda/analysis3
 
 echo "=== COSIMA Recipe Execution ==="
@@ -247,22 +253,30 @@ echo "Job completed at: $(date)"
                            esmvaltool_version: str = 'main', 
                            conda_module: str = 'conda/analysis3',
                            project: str = 'w40',
-                           repository_url: str = None) -> str:
+                           repository_url: str = None,
+                           base_data_dir: str = '/g/data/xp65/admin',
+                           module_base_path: str = '/g/data/xp65/public/modules',
+                           log_base_dir: str = '/g/data/xp65/admin') -> str:
         """Generate PBS script based on recipe type."""
         
         if recipe_type.lower() == 'cosima':
-            return self.generate_cosima_pbs_script(recipe_name, config, project)
+            # Use hh5 as default module path for COSIMA
+            cosima_module_path = '/g/data/hh5/public/modules' if module_base_path == '/g/data/xp65/public/modules' else module_base_path
+            return self.generate_cosima_pbs_script(recipe_name, config, project, base_data_dir, cosima_module_path, log_base_dir)
         else:
             # Default to ESMValTool
             return self.generate_esmvaltool_pbs_script(recipe_name, config, esmvaltool_version, 
-                                                      conda_module, project)
+                                                      conda_module, project, base_data_dir, module_base_path, log_base_dir)
 
     def run(self, recipe_name: str, config_json: str = '{}', 
             recipe_type: str = 'esmvaltool',
             esmvaltool_version: str = 'main', 
             conda_module: str = 'conda/analysis3',
             project: str = 'w40',
-            repository_url: str = None) -> tuple[str, str]:
+            repository_url: str = None,
+            base_data_dir: str = '/g/data/xp65/admin',
+            module_base_path: str = '/g/data/xp65/public/modules',
+            log_base_dir: str = '/g/data/xp65/admin') -> tuple[str, str]:
         """
         Generate PBS script for HPC execution via ssh-action.
         
@@ -272,8 +286,11 @@ echo "Job completed at: $(date)"
             recipe_type: Type of recipe ('esmvaltool' or 'cosima')
             esmvaltool_version: ESMValTool version (for esmvaltool recipes)
             conda_module: Conda module to load
-            project: PBS project code (e.g., w40, kj13, etc.)
+            project: PBS project code (e.g., w40, xp65, etc.)
             repository_url: Repository URL to clone (optional)
+            base_data_dir: Base directory for configs and logs
+            module_base_path: Base path for module loading
+            log_base_dir: Base directory for job logs
             
         Returns:
             (status, pbs_filename)
@@ -309,6 +326,9 @@ echo "Job completed at: $(date)"
         print(f"  Walltime: {config['walltime']}")
         print(f"  Group: {config['group']}")
         print(f"  Project: {project}")
+        print(f"  Base data dir: {base_data_dir}")
+        print(f"  Module base path: {module_base_path}")
+        print(f"  Log base dir: {log_base_dir}")
         if config.get('storage'):
             print(f"  Storage: {config['storage']}")
         if repository_url:
@@ -322,7 +342,10 @@ echo "Job completed at: $(date)"
             esmvaltool_version=esmvaltool_version,
             conda_module=conda_module,
             project=project,
-            repository_url=repository_url
+            repository_url=repository_url,
+            base_data_dir=base_data_dir,
+            module_base_path=module_base_path,
+            log_base_dir=log_base_dir
         )
         
         # Save PBS script for ssh-action to use
@@ -345,8 +368,11 @@ def main():
                        help='Type of recipe to run')
     parser.add_argument('--esmvaltool-version', default='main', help='ESMValTool version')
     parser.add_argument('--conda-module', default='conda/analysis3', help='Conda module')
-    parser.add_argument('--project', default='w40', help='PBS project code (e.g., w40, kj13, etc.)')
+    parser.add_argument('--project', default='w40', help='PBS project code (e.g., w40, xp65, etc.)')
     parser.add_argument('--repository-url', help='Repository URL to clone')
+    parser.add_argument('--base-data-dir', default='/g/data/xp65/admin', help='Base directory for configs and logs')
+    parser.add_argument('--module-base-path', default='/g/data/xp65/public/modules', help='Base path for module loading')
+    parser.add_argument('--log-base-dir', default='/g/data/xp65/admin', help='Base directory for job logs')
     
     args = parser.parse_args()
     
@@ -359,7 +385,10 @@ def main():
             esmvaltool_version=args.esmvaltool_version,
             conda_module=args.conda_module,
             project=args.project,
-            repository_url=args.repository_url
+            repository_url=args.repository_url,
+            base_data_dir=args.base_data_dir,
+            module_base_path=args.module_base_path,
+            log_base_dir=args.log_base_dir
         )
         
         print(f"✅ PBS generation completed with status: {status}")

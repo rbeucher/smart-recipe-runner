@@ -72,7 +72,7 @@ def test_generate_pbs_script(recipe_runner, mock_config, monkeypatch):
     assert '#PBS -P w40' in script
 
 
-@pytest.mark.parametrize("project", ['w40', 'kj13', 'fs38', 'oi10'])
+@pytest.mark.parametrize("project", ['w40', 'xp65', 'fs38', 'oi10'])
 def test_project_parameter(recipe_runner, mock_config, project):
     """Test that the project parameter is correctly set in PBS scripts."""
     

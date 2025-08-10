@@ -1,0 +1,53 @@
+# Example configuration with custom base directories
+# This example shows how to use different base paths for different institutions
+
+# Multi-recipe execution with custom paths
+recipes:
+  - recipe_name: recipe_python
+    recipe_type: esmvaltool
+    esmvaltool_version: main
+    conda_module: conda/analysis3
+    project: w40
+    recipe_config:
+      queue: normal
+      memory: 4gb
+      walltime: "02:00:00"
+      group: medium
+      storage: "gdata/fs38+gdata/oi10+gdata/rr3+gdata/xp65+gdata/al33+gdata/rt52+gdata/zz93+gdata/cb20"
+
+  - recipe_name: test_diagnostic
+    recipe_type: cosima
+    conda_module: conda/analysis3  
+    project: w40
+    recipe_config:
+      queue: normal
+      memory: 8gb
+      walltime: "04:00:00"
+      group: large
+      storage: "gdata/fs38+gdata/oi10+gdata/rr3+gdata/v45+gdata/hh5"
+
+# Custom base directories for different institutions
+# These would be passed as inputs to the action
+
+# For NCI/Gadi (default):
+# base_data_dir: /g/data/xp65/admin
+# module_base_path: /g/data/xp65/public/modules  
+# log_base_dir: /g/data/xp65/admin
+
+# For other institutions, you might use:
+# base_data_dir: /shared/data/admin
+# module_base_path: /shared/modules
+# log_base_dir: /shared/logs
+
+# Example GitHub Actions workflow usage:
+# 
+# - name: Run Smart Recipe Runner
+#   uses: ./
+#   with:
+#     config_file: examples/custom-paths-config.yml
+#     base_data_dir: /g/data/myproject/admin
+#     module_base_path: /g/data/myproject/modules
+#     log_base_dir: /g/data/myproject/logs
+#     gadi_username: ${{ secrets.GADI_USERNAME }}
+#     gadi_ssh_key: ${{ secrets.GADI_SSH_KEY }}
+#     submit_job: true

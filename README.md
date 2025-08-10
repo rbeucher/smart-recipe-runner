@@ -78,6 +78,8 @@ The action automatically handles repository cloning and recipe discovery on Gadi
 **For ESMValTool recipes:**
 - Clones/updates the ESMValTool repository to `ESMValTool-ci/` on Gadi login node
 - PBS script uses pre-cloned repository at `/scratch/$USER/../ESMValTool-ci/`
+- Configuration files loaded from: `{base_data_dir}/ESMValTool/.esmvaltool/`
+- Job logs written to: `{log_base_dir}/ESMValTool/logs/`
 - Searches for recipes in multiple locations:
   - `esmvaltool/recipes/{recipe_name}.yml`
   - `esmvaltool/recipes/examples/{recipe_name}.yml`
@@ -87,6 +89,7 @@ The action automatically handles repository cloning and recipe discovery on Gadi
 **For COSIMA recipes:**
 - Clones/updates the COSIMA recipes repository to `COSIMA-recipes-ci/` on Gadi login node
 - PBS script uses pre-cloned repository at `/scratch/$USER/../COSIMA-recipes-ci/`
+- Job logs written to: `{log_base_dir}/COSIMA/logs/`
 - Searches for recipes in multiple locations and formats:
   - Root directory: `{recipe_name}`, `{recipe_name}.py`, `{recipe_name}.ipynb`
   - `notebooks/` directory: `{recipe_name}`, `{recipe_name}.py`, `{recipe_name}.ipynb`
@@ -102,17 +105,46 @@ The action automatically handles repository cloning and recipe discovery on Gadi
 | `config` | Recipe configuration (JSON string, for matrix execution) | No | `{}` |
 | `esmvaltool_version` | ESMValTool version (for esmvaltool recipes) | No | `main` |
 | `conda_module` | Conda module to load | No | `conda/analysis3` |
-| `project` | PBS project code (e.g., w40, kj13, etc.) | No | `w40` |
+| `project` | PBS project code (e.g., w40, xp65, etc.) | No | `w40` |
 | `repository_url` | Repository URL for cloning | No | - |
 | `gadi_username` | Gadi username for SSH connection | No | - |
 | `gadi_ssh_key` | SSH private key for Gadi connection | No | - |
 | `gadi_ssh_passphrase` | Passphrase for SSH private key (if password-protected) | No | - |
 | `submit_job` | Whether to submit the job to Gadi (true/false) | No | `true` |
 | `scripts_dir` | Directory on Gadi for scripts | No | `/scratch/$PROJECT/$USER/med-ci` |
+| `base_data_dir` | Base data directory for configs and logs | No | `/g/data/xp65/admin` |
+| `module_base_path` | Base path for module loading | No | `/g/data/xp65/public/modules` |
+| `log_base_dir` | Base directory for job logs | No | `/g/data/xp65/admin` |
 
 **Notes:**
 - `*` `config_file` is required for matrix generation mode
 - For matrix execution, `recipe_name`, `recipe_type`, and `recipe_config` come from the matrix automatically
+- The base directory parameters allow customization for different institutions or HPC systems
+
+## Path Configuration
+
+The Smart Recipe Runner now supports configurable base paths to accommodate different institutions and HPC setups:
+
+- **`base_data_dir`**: Base directory for ESMValTool configs (default: `/g/data/xp65/admin`)
+- **`module_base_path`**: Base path for loading environment modules (default: `/g/data/xp65/public/modules`)  
+- **`log_base_dir`**: Base directory for PBS job output logs (default: `/g/data/xp65/admin`)
+
+### Default Paths (NCI/Gadi)
+- Config files: `{base_data_dir}/ESMValTool/.esmvaltool/config-user-{version}.yml`
+- ESMValTool logs: `{log_base_dir}/ESMValTool/logs/`
+- COSIMA logs: `{log_base_dir}/COSIMA/logs/`
+- Module loading: `module use {module_base_path}`
+
+### Custom Institution Example
+```yaml
+- name: Run with custom paths
+  uses: ./
+  with:
+    config_file: examples/my-recipes.yml
+    base_data_dir: /shared/data/admin
+    module_base_path: /shared/modules  
+    log_base_dir: /shared/logs
+```
 
 ## Multi-Recipe Execution
 
